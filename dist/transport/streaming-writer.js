@@ -1,5 +1,6 @@
 import { unsplit } from "./outbound-buffer.js";
 import { opsLog } from "../shared/ops-log.js";
+import { normalizeAt } from "./reply-target.js";
 export class StreamingWriter {
     fullText = '';
     session = null;
@@ -54,7 +55,7 @@ export class StreamingWriter {
             for (let i = 0; i < 3 && this.finalFailed; i++) {
                 await new Promise((r) => setTimeout(r, 800 * (i + 1)));
                 try {
-                    await this.session.update(unsplit(this.fullText));
+                    await this.session.update(normalizeAt(unsplit(this.fullText)));
                     this.finalFailed = false;
                     this.sentChunkCount++;
                 }
@@ -124,7 +125,7 @@ export class StreamingWriter {
         }
         try {
             // 分条标记在流式里显示为换行（流式是同一条消息，无法真正分条）
-            await this.session.update(unsplit(this.fullText).replace(/\[SPL?I?T?$/, ''));
+            await this.session.update(normalizeAt(unsplit(this.fullText).replace(/\[SPL?I?T?$/, '').replace(/<qqbot-at-user[^>]*$|<@?[0-9A-Fa-f]*$/, '')));
             this.sentChunkCount++;
             this.lastUpdateFailed = false;
         }

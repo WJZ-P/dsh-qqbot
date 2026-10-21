@@ -73,7 +73,16 @@ export function resolveReplyTarget(target, limiter, allowEvent) {
  * 带 eventId 时通过 bot.send 的 extra 填 event_id（SDK sendMarkdown 不支持）；
  * 否则走 sendMarkdown 填 msg_id。
  */
+/** 把 <@openid> / <@!openid> / @<openid> 等写法统一成官方 @ 标签 <qqbot-at-user id="openid" /> */
+export function normalizeAt(content) {
+    if (typeof content !== 'string')
+        return content;
+    return content
+        .replace(/<qqbot-at-user\s+id=["']?([0-9A-Fa-f]{32})["']?\s*\/?>(?:<\/qqbot-at-user>)?/g, '<qqbot-at-user id="$1" />')
+        .replace(/<@!?([0-9A-Fa-f]{32})>/g, '<qqbot-at-user id="$1" />');
+}
 export function sendResolvedMarkdown(bot, target, content, opts) {
+    content = normalizeAt(content);
     if (target.eventId) {
         return bot.send({
             target: { scope: target.scope, targetId: target.targetId, msgId: undefined },
