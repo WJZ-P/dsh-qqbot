@@ -23,6 +23,7 @@ import { registerWebSearchTool } from "../features/web-search-tool.js";
 import { registerGroupMemoryTool } from "../features/group-memory-tool.js";
 import { registerGroupAdminTool } from "../features/group-admin-tool.js";
 import { registerGlobalPromptTool } from "../features/global-prompt-tool.js";
+import { registerReminderTool, startReminderScheduler } from "../features/reminder.js";
 import { GroupAdminApi } from "../features/group-admin.js";
 import { registerPulseRoutes } from "../setup/pulse-routes.js";
 /**
@@ -195,6 +196,12 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
         logger.warn(`im-qqbot: qqbot_global_prompt 注册失败: ${err instanceof Error ? err.message : String(err)}`);
     }
     try {
+        registerReminderTool(ctx, manager, logger);
+    }
+    catch (err) {
+        logger.warn(`im-qqbot: qqbot_reminder 注册失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
         registerWebSearchTool(ctx, logger);
     }
     catch (err) {
@@ -222,6 +229,17 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
             pulse?.stop();
         };
     }, 'im-qqbot.pulse');
+    ctx
+        .effect(() => {
+        let stop = () => { };
+        try {
+            stop = startReminderScheduler(manager, logger);
+        }
+        catch (err) {
+            logger.warn(`im-qqbot: 提醒调度启动失败: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return () => stop();
+    }, 'im-qqbot.reminders');
     ctx
         .effect(() => {
         logger.info(`Starting bot (appId=${config.appId})`);
