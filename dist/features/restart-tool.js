@@ -68,17 +68,27 @@ export function registerRestartTool(ctx, manager, logger) {
             properties: { reason: { type: 'string', description: 'Why (logged).' } },
             additionalProperties: false,
         },
+        output: {
+            schema: {
+                type: 'object',
+                properties: { ok: { type: 'boolean' }, message: { type: 'string' } },
+                required: ['ok', 'message'],
+                additionalProperties: false,
+            },
+            render: (_a, v) => [{ type: 'text', text: v.message }],
+        },
         async execute(args, exec) {
             const record = exec.agent !== undefined ? manager.findByAgent(exec.agent) : undefined;
             if (record !== undefined && record.lastSenderOwner !== true)
-                return { ok: false, error: '只有主人可以重启机器人。' };
+                return { ok: false, message: '只有主人可以重启机器人。' };
             const agent = record?.agent ?? exec.agent;
             if (agent?.whenIdle) {
                 // 等这轮回复发完再重启
                 void agent.whenIdle().then(() => scheduleSelfReload(ctx, logger, { reason: args.reason }), () => scheduleSelfReload(ctx, logger, { reason: args.reason }));
-                return { ok: true, note: '本轮回复发出后约 3 秒开始重启，大约 10 秒后恢复。用一句话告诉主人即可。' };
+                return { ok: true, message: '本轮回复发出后约 3 秒开始重启，大约 10 秒后恢复。用一句话告诉主人即可。' };
             }
-            return scheduleSelfReload(ctx, logger, { reason: args.reason });
+            const r = scheduleSelfReload(ctx, logger, { reason: args.reason });
+            return { ok: r.ok, message: r.ok ? '约 3 秒后开始重启，大约 10 秒后恢复。' : r.error };
         },
     });
     logger.info('im-qqbot: qqbot_restart 工具已注册');
