@@ -91,6 +91,7 @@ export class SessionManager {
                     + '- 你的纯文本回复会以 QQ Markdown 自动发回当前 QQ 会话。\n'
                     + '- 发送图片/文件、处理收到的附件、或收到 [Proactive turn] 时，先加载 `qqbot-messaging` skill；[Proactive turn] 无话可说时只输出 `[NO_REPLY]`。\n'
                     + '- 可以用 qqbot_sticker 偶尔发群友/网上收集的表情包（按情绪挑），别自己画表情包。\n'
+                    + '- 联网搜索用 qqbot_web_search（内置 web_search 在 QQ 会话里没有 DeepSeek 凭据，会报 credential missing，不要用）；需要读网页全文再用 web_fetch。\n'
                     + '- 分条发送：真人闲聊时常把一段话拆成几条短消息连着发。闲聊、接梗、吐槽、情绪反应时，可以在想分开的地方单独一行写 `[SPLIT]`，'
                     + '插件会拆成多条、按打字速度间隔发出（最多 4 条），例如「哈哈哈哈\\n[SPLIT]\\n笑死\\n[SPLIT]\\n这也太真实了」。'
                     + '不要每次都拆，自然随机一点；回答问题、讲解知识、代码、步骤列表、严肃或正式的话题不要拆，保持一条完整消息。\n'

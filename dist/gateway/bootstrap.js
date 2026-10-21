@@ -19,6 +19,7 @@ import { registerGroupDirectoryTool } from "../features/group-directory-tool.js"
 import { GroupPulse } from "../features/group-pulse.js";
 import { GroupProfiles, PulseMaintenance } from "../features/pulse-maintenance.js";
 import { registerStickerTool } from "../features/sticker-tool.js";
+import { registerWebSearchTool } from "../features/web-search-tool.js";
 import { registerPulseRoutes } from "../setup/pulse-routes.js";
 /**
  * interaction 统一分发器：按 button_data 的顶层 `t` 判别字段，路由到对应
@@ -170,6 +171,12 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     pulseSender.sendText = (target, text) => sender.sendMarkdown(target, text);
     pulseSender.sendImage = (target, source) => mediaSender.sendImage(target, source);
     registerStickerTool(ctx, manager, mediaSender, config, logger);
+    try {
+        registerWebSearchTool(ctx, logger);
+    }
+    catch (err) {
+        logger.warn(`im-qqbot: qqbot_web_search 注册失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
     let maintenance = null;
     if (pulse !== null) {
         maintenance = new PulseMaintenance({ ctx, pulse, manager, store: messageStore, logger, profiles: pulse.profiles });
