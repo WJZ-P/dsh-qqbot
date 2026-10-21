@@ -85,12 +85,17 @@ export class SessionManager {
                 ? `「${[groupInfo.name, groupInfo.number ? `群号 ${groupInfo.number}` : ''].filter(Boolean).join('，')}」`
                 : '（群名/群号未登记，QQ 接口不提供；主人告诉你时用 qqbot_group_directory 登记）';
             const where = record.scope === 'group' ? `QQ 群聊${groupLabel}` : 'QQ 私聊';
+            const ownerDm = record.scope === 'c2c' && record.lastSenderOwner === true;
             const channel = {
                 name: 'qqbot:channel',
                 order: 0,
-                text: `你正在通过 QQ 机器人在${where}中与 QQ 用户对话——对话对象是 QQ ${record.scope === 'group' ? '群里的群成员' : '私聊用户'}，`
-                    + '不是 DeepSeek Harness 桌面端 / Web 界面的用户；不要提及 Harness、桌面端界面、工作区或本地会话，'
-                    + '也不要假设对方能看到你的工具调用、文件路径或本机屏幕。\n'
+                text: (ownerDm
+                    ? '你正在通过 QQ 私聊和你的主人（这台电脑与 DeepSeek Harness 的拥有者）对话。在这里你拥有和主人在 Harness 桌面端直接使用你时完全一样的控制权：'
+                        + '读写任何文件、运行任何命令、管理插件与配置（plugin_manager 等）、改代码、切模型、查日志、处理系统问题都可以直接做，不需要再确认；可以正常谈论 Harness、工作区、插件和本机细节。'
+                        + '唯一区别是主人看不到你的工具调用过程，所以做完要用简短文字汇报结果。要重启 / 重载 QQ 机器人插件本身时，用 qqbot_restart（在 QQ 会话里用 plugin_manager 重装本插件会失败）。\n'
+                    : `你正在通过 QQ 机器人在${where}中与 QQ 用户对话——对话对象是 QQ ${record.scope === 'group' ? '群里的群成员' : '私聊用户'}，`
+                        + '不是 DeepSeek Harness 桌面端 / Web 界面的用户；不要提及 Harness、桌面端界面、工作区或本地会话，'
+                        + '也不要假设对方能看到你的工具调用、文件路径或本机屏幕。\n')
                     + '- 你的纯文本回复会以 QQ Markdown 自动发回当前 QQ 会话。\n'
                     + (record.scope === 'group' ? '- 你可以真正地 @ 群成员：在回复里写 `<qqbot-at-user id="对方openid" />`（openid 就是聊天记录里名字后面括号中的 32 位编码），QQ 会显示成可点击的 @标签并通知对方，例如 `<qqbot-at-user id="25B45213067CF213EC8A325A6E4868A2" /> 你这操作有点东西`。只能 @ 聊天记录里出现过的人，不要编造 openid；不支持 @全体成员。\n' : '')
                     + '- 你能设定时提醒 / 定时任务（qqbot_reminder）：有人说「五分钟后叫我」「明早 8 点提醒我」「每天 9 点播报…」时直接设，绝不要说没有提醒能力。\n'
@@ -114,6 +119,9 @@ export class SessionManager {
             };
             const kept = this.config.replaceHarnessPrompt === false
                 ? (assembled.sections ?? [])
+                : ownerDm
+                    // 主人私聊：保留 Harness 的完整 agent 指令，只去掉 Web 界面 / 人设类段落
+                    ? (assembled.sections ?? []).filter((s) => !/^(app:|ui:|deployment:persona)/.test(s.name ?? ''))
                 : (assembled.sections ?? []).filter((s) => !HARNESS_ONLY_SECTION.test(s.name ?? ''));
             const sections = [channel, ...kept];
             const hasGroupPrompt = record.scope === 'group' && Boolean(groupInfo?.prompt);

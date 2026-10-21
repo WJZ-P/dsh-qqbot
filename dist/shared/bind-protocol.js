@@ -40,4 +40,5 @@ export const STICKERS_UPDATE_PATH = '/qqbot/im-qqbot/stickers/update';
 export const GROUPS_PATH = '/qqbot/im-qqbot/groups';
 export const CAPABILITIES_PATH = '/qqbot/im-qqbot/capabilities';
 export const MODELS_PATH = '/qqbot/im-qqbot/models';
+export const RESTART_PATH = '/qqbot/im-qqbot/restart';
 //# sourceMappingURL=bind-protocol.js.map

@@ -25,6 +25,7 @@ import { registerGroupAdminTool } from "../features/group-admin-tool.js";
 import { registerGlobalPromptTool } from "../features/global-prompt-tool.js";
 import { registerReminderTool, startReminderScheduler } from "../features/reminder.js";
 import { setAutoStickerSender } from "../features/auto-sticker.js";
+import { registerRestartTool } from "../features/restart-tool.js";
 import { GroupAdminApi } from "../features/group-admin.js";
 import { registerPulseRoutes } from "../setup/pulse-routes.js";
 /**
@@ -193,6 +194,12 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     }
     try {
         registerGlobalPromptTool(ctx, manager, config, logger);
+    try {
+        registerRestartTool(ctx, manager, logger);
+    }
+    catch (err) {
+        logger.warn(`im-qqbot: qqbot_restart 注册失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
     }
     catch (err) {
         logger.warn(`im-qqbot: qqbot_global_prompt 注册失败: ${err instanceof Error ? err.message : String(err)}`);

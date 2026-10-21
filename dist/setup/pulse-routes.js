@@ -1,9 +1,10 @@
 import { pickCheapRoute, pickVisionRoute } from "../features/llm-lite.js";
+import { scheduleSelfReload } from "../features/restart-tool.js";
 /**
  * 水群 / 表情包面板路由
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH, CAPABILITIES_PATH, MODELS_PATH } from "../shared/bind-protocol.js";
+import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH, CAPABILITIES_PATH, MODELS_PATH, RESTART_PATH } from "../shared/bind-protocol.js";
 import { CAPABILITIES, PROACTIVE_MODES, QUIET_MAX_MIN, describeBotState, explainApiError, pluginControls } from "../features/group-admin.js";
 import { GroupDirectory, GROUP_PROMPT_MAX, MEMORY_MAX, RATE_LIMIT_MAX } from "../features/group-directory.js";
 import { rateStatus } from "../features/group-rate-limit.js";
@@ -121,6 +122,15 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
         }).sort((a, b) => Number(b.lastAt ?? 0) - Number(a.lastAt ?? 0));
     };
     const disposers = [
+        webServer.register({
+            kind: 'exact',
+            path: RESTART_PATH,
+            handler: async (req, res) => {
+                if (!guard(req, res, 'POST'))
+                    return;
+                sendJson(res, 200, scheduleSelfReload(ctx, logger, { delayMs: 500, reason: 'web' }));
+            },
+        }),
         webServer.register({
             kind: 'exact',
             path: MODELS_PATH,
