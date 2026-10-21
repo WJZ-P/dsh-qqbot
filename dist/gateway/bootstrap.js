@@ -24,6 +24,7 @@ import { registerGroupMemoryTool } from "../features/group-memory-tool.js";
 import { registerGroupAdminTool } from "../features/group-admin-tool.js";
 import { registerGlobalPromptTool } from "../features/global-prompt-tool.js";
 import { registerReminderTool, startReminderScheduler } from "../features/reminder.js";
+import { setAutoStickerSender } from "../features/auto-sticker.js";
 import { GroupAdminApi } from "../features/group-admin.js";
 import { registerPulseRoutes } from "../setup/pulse-routes.js";
 /**
@@ -176,6 +177,7 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     pulseSender.sendText = (target, text) => sender.sendMarkdown(target, text);
     pulseSender.sendImage = (target, source) => mediaSender.sendImage(target, source);
     registerStickerTool(ctx, manager, mediaSender, config, logger);
+    setAutoStickerSender((target, source) => mediaSender.sendImage(target, source));
     try {
         registerGroupMemoryTool(ctx, manager, logger);
     }

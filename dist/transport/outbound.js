@@ -1,4 +1,5 @@
 import { chunkMarkdownText } from "./chunker.js";
+import { finishTurn } from "../features/auto-sticker.js";
 import { OutboundBuffer, sendPieces, stripNoReply, unsplit } from "./outbound-buffer.js";
 import { formatToolResult } from "./tool-presenter.js";
 import { parseEvent, extractTurnError, } from "./events.js";
@@ -68,7 +69,7 @@ class OutboundRouter {
     onMessage(sessionId, record, event) {
         const buffer = this.buffers.get(sessionId);
         if (buffer !== undefined && buffer.text.trim()) {
-            void buffer.flush();
+            this.track(record, buffer.flush());
             this.buffers.delete(sessionId);
             return;
         }
@@ -80,7 +81,7 @@ class OutboundRouter {
         const fullText = textParts.join('\n');
         if (!fullText.trim())
             return;
-        void this.send(record, fullText, 'sendMarkdown');
+        this.track(record, this.send(record, fullText, 'sendMarkdown'));
         this.buffers.delete(sessionId);
     }
     /** 工具调用：仅记录，不发送（避免刷屏，等待结果） */
@@ -105,7 +106,7 @@ class OutboundRouter {
         const buffer = this.buffers.get(sessionId);
         if (buffer !== undefined) {
             if (buffer.text.trim()) {
-                void buffer.flush();
+                this.track(record, buffer.flush());
             }
             else {
                 buffer.cancel();
@@ -116,7 +117,13 @@ class OutboundRouter {
         if (failure !== undefined && !SILENT_TURN_ERROR_CODES.has(failure.code)) {
             void this.send(record, `⚠️ 本轮异常结束\n\`${failure.code}\`: ${failure.message}`, 'sendTurnEndError');
         }
+        void finishTurn(record, this.logger);
         this.logger.debug(`im-qqbot: turn/end sessionId=${sessionId}`);
+    }
+    /** 记录本轮出站发送，供回合结束后（如自动配表情包）等待 */
+    track(record, promise) {
+        record.turnOut?.pending.push(promise);
+        return promise;
     }
     /** 统一发送：切分 + 逐 chunk 发送 + 错误记录 */
     async send(record, text, tag) {
@@ -125,6 +132,8 @@ class OutboundRouter {
             this.logger.info(`im-qqbot: ${tag} skipped (NO_REPLY)`);
             return;
         }
+        if (tag === 'sendMarkdown' && record.turnOut)
+            record.turnOut.text += `${text}\n`;
         if (record.scope === 'group' && tag === 'sendMarkdown') {
             try {
                 getActivePulse()?.onBotSent(record.peerId, unsplit(text));

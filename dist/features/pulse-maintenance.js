@@ -1,10 +1,10 @@
 /**
- * 水群后台维护：
- *   - 每 10 分钟：给新收集的表情包打标签（视觉 + 便宜模型，每轮最多 6 张）
- *   - 每晚（睡眠时段内，每天一次）：
- *       1. 用当天聊天记录生成 / 更新「群档案」（话题、群梗、群友特点）
- *       2. 网上搜集表情包（Bing 图片搜索，关键词来自配置 + 群档案），视觉确认后入库
- *       3. 清理非表情包 / 下载失败的条目
+ * 水群后台维护（全部放在每晚睡眠时段，每天一次，白天不耗 token）：
+ *   1. 用当天聊天记录生成 / 更新「群档案」（话题、群梗、群友特点）
+ *   2. 表情包：每 stickerRefreshDays 天（默认 14）换一波——按最近最少使用踢掉最多 stickerRefreshCount 张
+ *      （默认 100，只踢到能腾出空位为止），再去网上搜新的补上；其余夜晚库没满才少量补充；库满不新增
+ *   3. 统一给未打标签的表情包打标签（视觉模型），判定不是表情包的清掉
+ *   4. 清理下载失败的条目
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -123,6 +123,7 @@ export class PulseMaintenance {
         this.store = store;
         this.logger = logger;
         this.profiles = profiles;
+        this.library.setMax(pulse.pulseCfg.stickerMax);
         try {
             this.lastNightly = readFileSync(join(homedir(), '.dsh-qqbot', 'pulse-nightly.txt'), 'utf8').trim();
         }
@@ -149,11 +150,7 @@ export class PulseMaintenance {
             return;
         this.running = true;
         try {
-            if (this.pulse.pulseCfg.stickers) {
-                const r = await this.library.tagPending(this.ctx, await this.route(), 6, this.logger);
-                if (r.tried > 0)
-                    this.logger.info(`im-qqbot: 表情包打标签 ${r.ok}/${r.tried}`);
-            }
+            this.library.setMax(this.pulse.pulseCfg.stickerMax);
             const today = new Date().toLocaleDateString('sv-SE');
             const asleep = getActiveSleepClock()?.inWindow?.() === true;
             if (this.pulse.pulseCfg.nightly && asleep && this.lastNightly !== today) {
@@ -185,10 +182,18 @@ export class PulseMaintenance {
         }
         if (this.pulse.pulseCfg.stickers) {
             try {
-                await this.harvest(route, { perKeyword: 4, maxKeywords: 4 });
+                await this.stickerRefresh(route);
             }
             catch (err) {
-                this.logger.warn(`im-qqbot: 表情包搜集失败: ${err instanceof Error ? err.message : String(err)}`);
+                this.logger.warn(`im-qqbot: 表情包换血/搜集失败: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            try {
+                const r = await this.library.tagPending(this.ctx, route, 400, this.logger);
+                if (r.tried > 0)
+                    this.logger.info(`im-qqbot: 夜间统一打标签 ${r.ok}/${r.tried}`);
+            }
+            catch (err) {
+                this.logger.warn(`im-qqbot: 表情包打标签失败: ${err instanceof Error ? err.message : String(err)}`);
             }
             const removed = this.library.sweep();
             if (removed)
@@ -233,8 +238,35 @@ members 最多 10 人。不要编造记录里没有的东西。`;
         this.logger.info(`im-qqbot: 群档案已更新 ${gid}: ${profile.summary.slice(0, 60)}`);
         return profile;
     }
-    /** 网上搜集表情包 */
-    async harvest(route, { perKeyword = 4, maxKeywords = 4, keywords } = {}) {
+    /** 表情包换血：到期则 LRU 踢旧 + 补新；未到期且库没满时少量补充 */
+    async stickerRefresh(route) {
+        const cfg = this.pulse.pulseCfg;
+        const lib = this.library;
+        lib.setMax(cfg.stickerMax);
+        const now = Date.now();
+        if (!lib.lastRefreshAt) {
+            lib.lastRefreshAt = now; // 首次启用：从今天开始计时
+            lib.save();
+        }
+        const due = now - lib.lastRefreshAt >= cfg.stickerRefreshDays * 86_400_000;
+        if (due) {
+            const n = cfg.stickerRefreshCount;
+            // 只踢到能腾出 n 个空位为止（库还没满时不白踢）
+            const evict = Math.min(n, Math.max(0, lib.entries.size + n - lib.max));
+            const removed = evict ? lib.evictLRU(evict) : 0;
+            lib.lastRefreshAt = now;
+            lib.save();
+            this.logger.info(`im-qqbot: 表情包换血：LRU 踢掉 ${removed} 张，准备补充最多 ${n} 张`);
+            const room = Math.min(n, lib.max - lib.entries.size);
+            if (room > 0)
+                await this.harvest(route, { perKeyword: Math.ceil(room / 8), maxKeywords: 8, budget: room });
+            return;
+        }
+        if (!lib.isFull())
+            await this.harvest(route, { perKeyword: 4, maxKeywords: 4, budget: Math.min(16, lib.max - lib.entries.size) });
+    }
+    /** 网上搜集表情包（只下载入库，夜间统一打标签） */
+    async harvest(route, { perKeyword = 4, maxKeywords = 4, keywords, budget = Infinity } = {}) {
         const pool = new Set(keywords ?? this.pulse.pulseCfg.harvestKeywords);
         if (!keywords) {
             for (const p of Object.values(this.profiles.data))
@@ -247,6 +279,8 @@ members 最多 10 人。不要编造记录里没有的东西。`;
         const chosen = keywords ? all : [...all.slice(start), ...all.slice(0, start)].slice(0, maxKeywords);
         const result = { at: Date.now(), keywords: chosen, added: 0, tried: 0, errors: [] };
         for (const kw of chosen) {
+            if (result.added >= budget || this.library.isFull())
+                break;
             let urls = [];
             try {
                 urls = await searchImages(kw, perKeyword * 3);
@@ -257,7 +291,7 @@ members 最多 10 人。不要编造记录里没有的东西。`;
             }
             let added = 0;
             for (const u of urls) {
-                if (added >= perKeyword)
+                if (added >= perKeyword || result.added >= budget || this.library.isFull())
                     break;
                 result.tried += 1;
                 const r = await this.library.addFromUrl(this.ctx, route, u, { keyword: kw }, this.logger);

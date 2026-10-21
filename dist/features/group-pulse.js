@@ -21,6 +21,7 @@ import { EMOTIONS, StickerLibrary } from "./sticker-library.js";
 import { getActiveSleepClock } from "./sleep-clock.js";
 import { GroupDirectory } from "./group-directory.js";
 import { quotaBlocked, recordReply } from "./group-rate-limit.js";
+import { beginTurn } from "./auto-sticker.js";
 import { clearGroupHistory } from "./history-store.js";
 import { NO_REPLY_TOKEN } from "./group-engage.js";
 const STATE_PATH = join(homedir(), '.dsh-qqbot', 'group-pulse.json');
@@ -35,6 +36,9 @@ export const DEFAULT_PULSE = {
     botNames: ['小喵'],
     harvestKeywords: ['甘城猫猫表情包', '猫猫表情包', 'Claude 表情包', '熊猫头表情包', '小猫咪表情包'],
     nightly: true,
+    stickerMax: 500,
+    stickerRefreshDays: 14,
+    stickerRefreshCount: 100,
 };
 export function normalizePulse(raw) {
     const p = { ...DEFAULT_PULSE, ...(raw ?? {}) };
@@ -47,6 +51,9 @@ export function normalizePulse(raw) {
         botNames: arr(p.botNames, DEFAULT_PULSE.botNames),
         harvestKeywords: arr(p.harvestKeywords, DEFAULT_PULSE.harvestKeywords),
         nightly: p.nightly !== false,
+        stickerMax: Math.max(20, Math.min(5000, Math.floor(Number(p.stickerMax)) || 500)),
+        stickerRefreshDays: Math.max(1, Math.min(90, Math.floor(Number(p.stickerRefreshDays)) || 14)),
+        stickerRefreshCount: Math.max(0, Math.min(1000, Math.floor(Number(p.stickerRefreshCount ?? 100)))),
     };
 }
 export function levelOf(a) {
@@ -473,9 +480,19 @@ export class GroupPulse {
         const recent = humans.filter((e) => t - e.at < 10 * 60_000);
         if (recent.length < prm.minRecentMsgs)
             return null; // 不够热闹：静默跳过，不记日志
-        const fresh = humans.filter((e) => e.seq > g.lastJudgeSeq).length;
-        if (fresh < 3)
+        const freshMsgs = humans.filter((e) => e.seq > g.lastJudgeSeq);
+        if (freshMsgs.length < 3)
             return null;
+        // 代码预筛（省判断模型 token）：新消息全是表情包 / 零碎短句、没人提问也没提到小喵 → 不值得判断
+        const names = this.pulseCfg.botNames.map((n) => n.toLowerCase()).filter(Boolean);
+        const worth = freshMsgs.some((e) => {
+            const t = String(e.text ?? '');
+            return e.atBot || /[?？]/.test(t) || t.replace(/\s/g, '').length >= 8 || names.some((n) => t.toLowerCase().includes(n));
+        });
+        if (!worth) {
+            g.lastJudgeSeq = freshMsgs[freshMsgs.length - 1].seq;
+            return null;
+        }
         if (t - g.lastBotAt < 90_000)
             return '刚说过话';
         if (t - g.lastProactiveAt < lim.minGapMin * 60_000)
@@ -623,14 +640,12 @@ ${lines.join('\n')}
         const record = await this.manager.getOrCreate('group', gid, senderId, replyTarget);
         record.lastSenderOwner = false;
         record.busy = true;
-        const stickerHint = sticker
-            ? `说完后再调用 qqbot_sticker {"action":"send","id":"${sticker.id}"} 配一张表情包（${sticker.emotion}：${(sticker.desc ?? '').slice(0, 30)}）。`
-            : '如果很适合配图，可以调用 qqbot_sticker {"action":"send","emotion":"…"} 丢一张表情包（可选）。';
+        // 配图由插件在文字发出后自动发送（不让模型再走一轮工具调用）
+        beginTurn(record, sticker ? { id: sticker.id } : null);
         const body = ['[Chat history begins]', ...lines, '[Chat history ends]', '',
             `[Proactive turn] 你没有被 @。群友正在聊「${j.topic ?? ''}」，你决定自然地插一句（角度参考：${j.angle ?? '随意'}；可以针对 #${j.replyTo} 那条）。`,
             '要求：像群友一样口语化、简短（一两句），可以接梗、吐槽、补充信息；不要自我介绍、不要总结大家在聊什么、不要说“我注意到…”、不要用列表或标题。',
             '闲聊时可以用单独一行的 [SPLIT] 把话拆成两三条短消息连着发，更像真人（不必每次都拆）。',
-            stickerHint,
             `仔细看完如果觉得插话不合适，只输出 ${NO_REPLY_TOKEN}。`].join('\n');
         try {
             record.agent.followup(createUserMessage({ content: [{ type: 'text', text: body }], source: { kind: 'user' } }));

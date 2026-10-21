@@ -93,8 +93,11 @@ export class OutboundBuffer {
             if (this.writer) {
                 await this.writer.finish();
                 // 流式成功（未降级）→ 直接返回
-                if (!this.writer.shouldFallback)
+                if (!this.writer.shouldFallback) {
+                    if (this.record.turnOut)
+                        this.record.turnOut.text += stripNoReply(this.buffer);
                     return;
+                }
             }
             // 降级：静态发送（writer 不存在 or 流式失败）
             // 群聊主动参与：agent 输出 [NO_REPLY] 表示保持沉默
@@ -103,6 +106,8 @@ export class OutboundBuffer {
                 this.logger.info('im-qqbot: agent 选择不回复（NO_REPLY）');
                 return;
             }
+            if (this.record.turnOut)
+                this.record.turnOut.text += `${text}\n`;
             if (this.record.scope === 'group') {
                 try {
                     getActivePulse()?.onBotSent(this.record.peerId, unsplit(text));

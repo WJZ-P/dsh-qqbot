@@ -6,10 +6,12 @@ import { getActivePulse } from "./group-pulse.js";
 import { pickCheapRoute } from "./llm-lite.js";
 export const STICKER_TOOL_NAME = 'qqbot_sticker';
 const DESCRIPTION = 'Use the sticker (表情包) library collected from group members and the web. '
-    + 'action=send posts one sticker to the current QQ chat: pass `id`, or `emotion` and/or `query` keywords to pick a matching one. '
+    + 'The plugin already auto-attaches a sticker after some replies — do NOT call this just to decorate a reply. '
+    + 'action=send posts one sticker to the current QQ chat as its own message: pass `tag` (an emotion or tag, e.g. "猫猫" / "大笑" — sends a RANDOM sticker with exactly that tag; cheapest), or `id`, or `emotion`/`query` for fuzzy matching. '
+    + 'action=tags lists available tags/emotions with counts. '
     + 'Use it sparingly, like a real group member — a sticker can replace a reply when a reaction says enough. '
     + 'action=search lists matching stickers (id, emotion, description). '
-    + 'action=add_url saves a sticker image from an http(s) URL you found on the web (it is checked by a vision model; non-stickers are rejected). '
+    + 'action=add_url saves a sticker image from an http(s) URL (tagged tonight by a vision model; non-stickers removed then; refused when the library is full). '
     + 'action=harvest (owner only) searches the web for `query` and saves a few stickers. Never draw or generate stickers yourself.';
 export function registerStickerTool(ctx, manager, mediaSender, config, logger) {
     const tools = ctx.get('tools');
@@ -24,7 +26,8 @@ export function registerStickerTool(ctx, manager, mediaSender, config, logger) {
         parameters: {
             type: 'object',
             properties: {
-                action: { type: 'string', enum: ['send', 'search', 'add_url', 'harvest'] },
+                action: { type: 'string', enum: ['send', 'tags', 'search', 'add_url', 'harvest'] },
+                tag: { type: 'string', description: 'action=send: send a random sticker having exactly this tag or emotion.' },
                 id: { type: 'string', description: 'Sticker id (from search results) for action=send.' },
                 emotion: { type: 'string', enum: EMOTIONS, description: 'Emotion to match for send/search.' },
                 query: { type: 'string', description: 'Keywords (space separated) for send/search, or the web search query for harvest.' },
@@ -70,26 +73,34 @@ export function registerStickerTool(ctx, manager, mediaSender, config, logger) {
                     }
                     return hits.length ? { ok: true, stickers: hits } : { ok: false, error: `库里没有匹配的（共 ${lib.usable().length} 张可用）` };
                 }
+                case 'tags': {
+                    const c = lib.tagCounts(60);
+                    return { ok: true, note: `情绪：${c.emotions.map(([k, n]) => `${k}(${n})`).join(' ')}\n标签：${c.tags.map(([k, n]) => `${k}(${n})`).join(' ')}` };
+                }
                 case 'send': {
                     if (record === undefined)
                         throw new Error('qqbot_sticker send 只能在 QQ 会话中使用');
                     const gid = record.scope === 'group' ? record.peerId : '';
-                    const e = args.id ? lib.get(String(args.id).toUpperCase()) : lib.pick({ query: args.query, emotion: args.emotion, groupOpenid: gid });
+                    const e = args.id ? lib.get(String(args.id).toUpperCase())
+                        : args.tag ? (lib.pickByTag(args.tag, gid) ?? lib.pick({ query: args.tag, groupOpenid: gid }))
+                            : lib.pick({ query: args.query, emotion: args.emotion, groupOpenid: gid });
                     if (!e || !lib.hasFile(e.id))
                         return { ok: false, error: '没有找到合适的表情包，那就不发了' };
                     await mediaSender.sendImage(record.replyTarget, { localPath: lib.filePath(e.id) });
                     lib.markSent(e.id, gid);
+                    if (record.turnOut)
+                        record.turnOut.stickerSent = true;
                     if (gid)
                         getActivePulse()?.push(gid, { at: Date.now(), bot: true, name: '小喵', text: '', stickerIds: [e.id] });
                     logger.info(`im-qqbot: qqbot_sticker 发送 ${e.id} → ${record.scope}:${record.peerId}`);
-                    return { ok: true, sent: `${e.id}（${e.emotion}）`, note: '表情包已直接发到群里。不要再说「已补发表情包」「发了个表情包」之类的话，也不要描述这张图；文字已经说完就直接结束本轮，不要再输出任何内容。' };
+                    return { ok: true, sent: `${e.id}（${e.emotion}）`, note: '已发出。别提这张图，说完就结束。' };
                 }
                 case 'add_url': {
                     if (!args.url)
                         return { ok: false, error: '缺少 url' };
                     const route = await pickCheapRoute(manager, config.pulse?.judgeModel);
                     const r = await lib.addFromUrl(ctx, route, String(args.url), { keyword: args.query }, logger);
-                    return r.ok ? { ok: true, added: 1, note: `已收录 ${r.id}：${r.emotion} ${r.tags.join('/')}` } : { ok: false, error: r.error };
+                    return r.ok ? { ok: true, added: 1, note: `已收录 ${r.id}，今晚统一打标签后可用` } : { ok: false, error: r.error };
                 }
                 case 'harvest': {
                     if (record !== undefined && record.lastSenderOwner !== true)

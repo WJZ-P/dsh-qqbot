@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { callLite, parseJsonLoose, sniffImage } from "./llm-lite.js";
 export const STICKER_DIR = join(homedir(), '.dsh-qqbot', 'stickers');
 const INDEX_PATH = join(STICKER_DIR, 'index.json');
-const MAX_ENTRIES = 800;
+export const STICKER_MAX_DEFAULT = 500;
 const MAX_BYTES = 3 * 1024 * 1024;
 const MIN_BYTES = 1024;
 export const EMOTIONS = ['开心', '大笑', '喜欢', '得意', '赞同', '疑惑', '无语', '震惊', '害怕', '难过', '哭', '生气', '嫌弃', '委屈', '害羞', '困', '摸鱼', '打招呼', '晚安', '加油', '谢谢', '嘲讽', '其他'];
@@ -74,6 +74,8 @@ async function download(url, maxBytes) {
 let shared = null;
 export class StickerLibrary {
     entries = new Map();
+    max = STICKER_MAX_DEFAULT;
+    lastRefreshAt = 0;
     saveTimer;
     downloading = new Map();
     static shared() {
@@ -88,6 +90,7 @@ export class StickerLibrary {
                 const data = JSON.parse(readFileSync(INDEX_PATH, 'utf8'));
                 for (const e of data.entries ?? [])
                     this.entries.set(e.id, e);
+                this.lastRefreshAt = Number(data.lastRefreshAt) || 0;
             }
         }
         catch { /* 损坏则重建 */ }
@@ -104,7 +107,7 @@ export class StickerLibrary {
     flush() {
         try {
             const tmp = `${INDEX_PATH}.tmp`;
-            writeFileSync(tmp, JSON.stringify({ version: 1, entries: [...this.entries.values()] }, null, 1), 'utf8');
+            writeFileSync(tmp, JSON.stringify({ version: 1, lastRefreshAt: this.lastRefreshAt, entries: [...this.entries.values()] }, null, 1), 'utf8');
             renameSync(tmp, INDEX_PATH);
         }
         catch { /* ignore */ }
@@ -130,6 +133,8 @@ export class StickerLibrary {
             let e = this.entries.get(id);
             const t = now();
             if (e === undefined) {
+                if (this.isFull())
+                    continue; // 库已满：不再收新表情包（等两周一次的 LRU 换血腾位置）
                 e = {
                     id, file: '', mime: att.content_type ?? '', size: Number(att.size) || 0,
                     width: Number(att.width) || 0, height: Number(att.height) || 0,
@@ -154,7 +159,6 @@ export class StickerLibrary {
                 void this.fetchInto(id, att.url, logger);
         }
         if (ids.length > 0) {
-            this.prune();
             this.save();
         }
         return ids;
@@ -206,6 +210,11 @@ export class StickerLibrary {
         e.text = String(j.text ?? '').slice(0, 80);
         e.emotion = EMOTIONS.includes(j.emotion) ? j.emotion : '其他';
         e.tags = Array.isArray(j.tags) ? j.tags.map((x) => String(x).trim()).filter(Boolean).slice(0, 8) : [];
+        if (e.source === 'web' && e.keyword) {
+            const series = String(e.keyword).replace(/表情包|表情|梗图|\s+/g, '').trim();
+            if (series && !e.tags.includes(series))
+                e.tags = [series, ...e.tags].slice(0, 8);
+        }
         e.tagged = true;
         e.tagError = undefined;
         if (e.isSticker === false)
@@ -235,10 +244,15 @@ export class StickerLibrary {
             this.save();
         return { tried: pending.length, ok };
     }
-    /** 从网址收录（网上搜集）：下载 → 去重 → 视觉确认是表情包 → 入库 */
-    async addFromUrl(ctx, route, url, meta = {}, logger) {
+    /**
+     * 从网址收录（网上搜集）：下载 → 去重 → 入库（未打标签）。
+     * 为省 token 不当场调视觉模型：夜间统一打标签，判定不是表情包的会被清掉。
+     */
+    async addFromUrl(_ctx, _route, url, meta = {}, logger) {
         if (!/^https?:\/\//i.test(url))
             return { ok: false, error: '不是 http(s) 链接' };
+        if (this.isFull())
+            return { ok: false, error: `表情包库已满（${this.max} 张），不再新增` };
         let buf;
         try {
             buf = await download(url, MAX_BYTES);
@@ -257,30 +271,36 @@ export class StickerLibrary {
         const file = `${id}.${EXT_BY_MIME[mime]}`;
         writeFileSync(join(STICKER_DIR, file), buf);
         const t = now();
-        const e = {
+        this.entries.set(id, {
             id, file, mime, size: buf.length, width: 0, height: 0, source: 'web', origin: meta.page ?? url, url,
             keyword: meta.keyword, groups: {}, senders: [], firstSeen: t, lastSeen: t, seenCount: 0,
             tagged: false, enabled: true, sentCount: 0, lastSentAt: 0,
-        };
-        this.entries.set(id, e);
-        try {
-            await this.tagOne(ctx, route, id);
-        }
-        catch (err) {
-            this.remove(id);
-            return { ok: false, error: `识别失败: ${err instanceof Error ? err.message : String(err)}` };
-        }
-        const series = String(meta.keyword ?? '').replace(/表情包|表情|梗图|\s+/g, '').trim();
-        if (series && !e.tags.includes(series))
-            e.tags = [series, ...e.tags].slice(0, 8);
-        if (e.isSticker === false) {
-            this.remove(id);
-            return { ok: false, error: `不像表情包（${e.desc}）` };
-        }
-        this.prune();
+        });
         this.save();
-        logger?.info?.(`im-qqbot: 网上收录表情包 ${id} ${e.emotion} ${e.tags.join('/')}`);
-        return { ok: true, id, desc: e.desc, emotion: e.emotion, tags: e.tags };
+        logger?.debug?.(`im-qqbot: 网上收录表情包 ${id}（待夜间打标签）`);
+        return { ok: true, id, pendingTag: true };
+    }
+    isFull() {
+        return this.entries.size >= this.max;
+    }
+    setMax(n) {
+        const v = Math.floor(Number(n));
+        if (Number.isFinite(v) && v >= 20)
+            this.max = Math.min(5000, v);
+    }
+    /** 最近一次被使用的时间：小喵发过 / 群友发过 / 入库 */
+    lastUsed(e) {
+        return Math.max(e.lastSentAt || 0, e.lastSeen || 0, e.firstSeen || 0);
+    }
+    /** 按「最近最少使用」踢掉 n 张，返回实际删除数 */
+    evictLRU(n) {
+        const sorted = [...this.entries.values()].sort((a, b) => this.lastUsed(a) - this.lastUsed(b));
+        let removed = 0;
+        for (const e of sorted.slice(0, Math.max(0, n))) {
+            if (this.remove(e.id))
+                removed += 1;
+        }
+        return removed;
     }
     usable() {
         return [...this.entries.values()].filter((e) => e.enabled && e.tagged && e.isSticker !== false && this.hasFile(e.id));
@@ -325,6 +345,34 @@ export class StickerLibrary {
             return undefined;
         return top[Math.floor(Math.random() * top.length)].e;
     }
+/** 按标签 / 情绪精确挑：在所有匹配的里均匀随机（本群 6 小时内发过的尽量避开） */
+    pickByTag(tag, groupOpenid = '') {
+        const t0 = String(tag ?? '').trim();
+        if (!t0)
+            return undefined;
+        const all = this.usable();
+        let hits = all.filter((e) => e.emotion === t0 || (e.tags ?? []).includes(t0));
+        if (!hits.length)
+            hits = all.filter((e) => (e.tags ?? []).some((x) => x.includes(t0) || t0.includes(x)) || (e.text ?? '').includes(t0));
+        if (!hits.length)
+            return undefined;
+        const t = now();
+        const fresh = hits.filter((e) => !(groupOpenid && t - (e.lastSentGroups?.[groupOpenid] ?? 0) < 6 * 3_600_000));
+        const pool = fresh.length ? fresh : hits;
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+    /** 可用的标签 / 情绪及数量 */
+    tagCounts(limit = 80) {
+        const emo = new Map();
+        const tags = new Map();
+        for (const e of this.usable()) {
+            emo.set(e.emotion, (emo.get(e.emotion) ?? 0) + 1);
+            for (const x of e.tags ?? [])
+                tags.set(x, (tags.get(x) ?? 0) + 1);
+        }
+        const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
+        return { emotions: top(emo), tags: top(tags) };
+    }
     markSent(id, groupOpenid) {
         const e = this.entries.get(id);
         if (!e)
@@ -368,23 +416,17 @@ export class StickerLibrary {
         this.save();
         return true;
     }
-    /** 超上限时清掉价值最低的（非表情包、没下载成功、只见过一次且很久没出现） */
+    /** 兜底：超过上限时按 LRU 删到上限 */
     prune() {
-        if (this.entries.size <= MAX_ENTRIES)
-            return;
-        const t = now();
-        const value = (e) => (e.isSticker === false ? -100 : 0) + (e.file ? 0 : -50)
-            + e.seenCount * 2 + e.sentCount * 3 - (t - e.lastSeen) / 86_400_000 * 0.2 + (e.source === 'web' ? 2 : 0);
-        const sorted = [...this.entries.values()].sort((a, b) => value(a) - value(b));
-        for (const e of sorted.slice(0, this.entries.size - MAX_ENTRIES))
-            this.remove(e.id);
+        if (this.entries.size > this.max)
+            this.evictLRU(this.entries.size - this.max);
     }
     /** 清理：删除已判定非表情包的、下载失败超过 1 天的 */
     sweep() {
         const t = now();
         let removed = 0;
         for (const e of [...this.entries.values()]) {
-            if (e.isSticker === false && e.probable !== false && e.source === 'group') {
+            if (e.isSticker === false && (e.source === 'web' || e.probable !== false)) {
                 this.remove(e.id);
                 removed += 1;
             }
@@ -430,6 +472,9 @@ export class StickerLibrary {
             web: all.filter((e) => e.source === 'web').length,
             group: all.filter((e) => e.source === 'group').length,
             sent: all.reduce((s, e) => s + e.sentCount, 0),
+            max: this.max,
+            full: this.isFull(),
+            lastRefreshAt: this.lastRefreshAt || null,
         };
     }
 }

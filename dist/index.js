@@ -74,6 +74,11 @@ const BUILTIN_SKILLS = [
         whenToUse: '在 QQ 群聊或私聊会话中回复、需要发送图片/文件、处理用户发来的附件，或收到 [Proactive turn] 时。',
     },
     {
+        name: 'qqbot-stickers',
+        description: '发表情包：qqbot_sticker send + tag 按标签/情绪随机发一张，tags 查看可用标签，收录网上表情包；表情包库维护规则（上限、两周换一波、夜间打标签）。',
+        whenToUse: '有人让你发某种表情包（如「来张猫猫」）、你想用一张特定表情包代替回复、或有人问表情包库的事时。普通回复的配图由插件自动完成，不需要加载。',
+    },
+    {
         name: 'qqbot-capabilities',
         description: 'QQ 机器人完整能力清单与群管理：官方接口（禁言/撤回/移出/黑名单/入群审批/群信息/机器人身份）+ 插件调控（每分钟回复上限、主动插话档位、安静模式），统一用 qqbot_group_admin；定时提醒/定时任务用 qqbot_reminder；主人修改总 prompt 用 qqbot_global_prompt。',
         whenToUse: '有人问你能做什么；有人让你 N 分钟后/某时刻提醒、定时做某事；要求禁言、撤回、踢人、拉黑、审批入群；要调整本群回复频率、让你少说话/安静时；主人要修改总 prompt / 人设 / 全局规则时。',

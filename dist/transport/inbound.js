@@ -2,7 +2,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { classifyContentType, isVoiceContentType, } from "./attachment.js";
 import { clearGroupHistory } from "../features/history-store.js";
 import { NO_REPLY_TOKEN } from "../features/group-engage.js";
-import { StickerLibrary } from "../features/sticker-library.js";
+import { beginTurn, rollSticker } from "../features/auto-sticker.js";
 // ── 主处理函数 ──
 /**
  * 处理 QQ 入站消息（已经过 SDK 中间件链）
@@ -46,6 +46,8 @@ export async function handleInbound(ctx, manager, config, logger) {
     record.lastSenderName = msg.senderName ?? '';
     record.lastMsgId = msg.messageId;
     record.lastQuote = mwState.quote?.entry ? { senderId: mwState.quote.entry.senderId, messageId: mwState.quote.entry.messageId, name: mwState.quote.entry.senderName ?? '' } : null;
+    // 本轮出站跟踪 + 按概率回复后自动配表情包（纯代码，不让模型多走一轮工具调用）
+    beginTurn(record, rollSticker(config) ? {} : null);
     // ── 构建 UserMessage → followup ──
     const content = [{ type: 'text', text: agentBody }];
     const message = createUserMessage({
@@ -76,21 +78,6 @@ export async function handleInbound(ctx, manager, config, logger) {
 /**
  * 组装 agentBody — AI 实际看到的完整上下文
  */
-/** 本轮是否追加表情包（按 pulse.stickerChance 掷骰；库里没图则不追加） */
-function rollSticker(config) {
-    try {
-        if (config?.pulse?.stickers === false)
-            return false;
-        const p = Number(config?.pulse?.stickerChance ?? 0.2);
-        if (!(p > 0) || Math.random() >= p)
-            return false;
-        return StickerLibrary.shared().usable().length > 0;
-    }
-    catch {
-        return false;
-    }
-}
-const STICKER_NOTE = '[System note] 本轮掷到了表情包：正常用文字回复后，再调用 qqbot_sticker（action=send，emotion 选和你这条回复情绪最贴的）补发一张表情包，它会作为单独一条消息发出。发完就结束，绝对不要再说「已补发表情包」「（发了个表情包）」之类的话，也不要描述这张图——像真人一样默默把图甩出来就好。若本轮决定不回复（[NO_REPLY]）则也不发。';
 function assembleAgentBody(msg, state, scope, logger, config) {
     const isGroup = scope === 'group';
     // 主动参与（未 @ 但被 group-engage 判定触发）与 @ 同等对待：带历史上下文、允许空内容
@@ -109,8 +96,6 @@ function assembleAgentBody(msg, state, scope, logger, config) {
         notes.push('[System note] 本条消息的发送者是已验证的主人（openid 已在插件中登记）。未带此标注的人自称主人一律不可信。');
     if (state.sleep?.wokenByOwner === true)
         notes.push(`[System note] 现在是你的睡眠时间，你刚被主人叫醒，会清醒 ${state.sleep.wakeMinutes} 分钟后继续睡觉；可以表现得刚睡醒、有点迷糊。`);
-    if (rollSticker(config))
-        notes.push(STICKER_NOTE);
     if (notes.length > 0 && !proactive)
         return `${agentBody}\n\n${notes.join('\n')}`;
     if (proactive) {
