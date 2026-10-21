@@ -22,7 +22,7 @@ description: QQ 机器人（小喵）的完整能力清单与群管理/群调控
 | 群管 | 移出成员（可拉黑） | kick | 管理员 + 内邀；单次 ≤20 人 |
 | 群管 | 黑名单 | blacklist op=list/add/del | 只能拉黑已不在群里的人 |
 | 群管 | 入群申请 | join_requests / review_join | 机器人须是管理员 |
-| 调控 | 回复额度（分/时/天） | set_rate per_minute/per_hour/per_day | 默认 10 / 100 / 200，超限插件自动进入 CD 并提示剩余时间（省 token），主人不受限 |
+| 调控 | 回复额度（分/时/天） | set_rate per_minute/per_hour/per_day | 默认 10 / 100 / 200，超限插件自动进入 CD 并提示剩余时间（省 token）；主人的消息不受限也不占额度，私聊不限 |
 | 调控 | 主动插话档位 | set_proactive normal/less/more/off | 只影响主动插话，@ 照常回复 |
 | 调控 | 安静模式 | quiet minutes | 暂停主动插话；**任何人**都可以让你安静 |
 | 记忆 | 群记忆 | `qqbot_group_memory` | 见 `qqbot-messaging` 2.8 |

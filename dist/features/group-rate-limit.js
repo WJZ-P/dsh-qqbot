@@ -8,7 +8,7 @@
  *   额度够 → 计一次回复并放行；超额 → 不进 LLM，回一句带剩余 CD 的提示
  *   （同一档位在冷却结束前只提示一次，避免刷屏），其余超额消息静默丢弃（照常落库）。
  * - 水群主动插话也计入额度；额度用完时不主动插话。
- * - 主人不受限（但计数，面板里能看到真实用量）。
+ * - 主人完全不受限，也不计数（和主人聊天不消耗群额度）；私聊不限。
  * - 计数持久化到 ~/.dsh-qqbot/rate-counters.json，插件重载不清零。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -201,7 +201,8 @@ const notifiedUntil = new Map(); // `${gid}:${level}` → 不再提示直到
 export function groupRateLimiter(config, bot, logger) {
     return async (ctx, next) => {
         const msg = ctx.message;
-        if (msg.kind !== 'group' || !msg.groupOpenid) {
+        // 私聊、主人发的消息：不限、不计数
+        if (msg.kind !== 'group' || !msg.groupOpenid || ctx.state.owner === true) {
             await next();
             return;
         }
@@ -209,7 +210,7 @@ export function groupRateLimiter(config, bot, logger) {
         let blocked = false;
         try {
             const now = Date.now();
-            const o = ctx.state.owner === true ? null : overQuota(gid, config, now);
+            const o = overQuota(gid, config, now);
             if (o) {
                 blocked = true;
                 const g = entry(gid, now);
