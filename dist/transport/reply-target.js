@@ -8,6 +8,39 @@
  */
 import { MsgType } from '@tencent-connect/qqbot-nodejs';
 import { getCachedReplyIds } from "./msgid-cache.js";
+import { opsLog } from "../shared/ops-log.js";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const errText = (e) => (e instanceof Error ? e.message : String(e));
+/**
+ * 带重试的发送：被动回复（带 msg_id / event_id）最多试 3 次（间隔 0.8s / 2s），
+ * 仍失败则降级为主动消息（去掉 msg_id / event_id）再试 2 次。每次尝试都写操作日志。
+ * send(t) 用解析好的目标真正发出去；最终失败时抛出最后一个错误。
+ */
+export async function sendWithRetry(kind, target, send, preview = '') {
+    const passive = Boolean(target.msgId || target.eventId);
+    const plans = passive
+        ? [target, target, target, { ...target, msgId: undefined, eventId: undefined }, { ...target, msgId: undefined, eventId: undefined }]
+        : [target, target, target];
+    const waits = [0, 800, 2000, 300, 1500];
+    let last;
+    for (let i = 0; i < plans.length; i++) {
+        const t = plans[i];
+        const mode = t.msgId || t.eventId ? 'passive' : 'proactive';
+        if (waits[i])
+            await sleep(waits[i]);
+        try {
+            const res = await send(t);
+            opsLog('send', { type: kind, ok: true, mode, attempt: i + 1, scope: t.scope, to: t.targetId, msgId: t.msgId ?? t.eventId, preview });
+            return res;
+        }
+        catch (err) {
+            last = err;
+            opsLog('send', { type: kind, ok: false, mode, attempt: i + 1, scope: t.scope, to: t.targetId, msgId: t.msgId ?? t.eventId, error: errText(err), preview });
+        }
+    }
+    opsLog('send', { type: kind, ok: false, final: true, scope: target.scope, to: target.targetId, error: errText(last), preview });
+    throw last;
+}
 /**
  * 解析被动回复目标。
  *

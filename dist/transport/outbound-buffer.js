@@ -99,6 +99,8 @@ export class OutboundBuffer {
                     return;
                 }
             }
+            if (this.writer)
+                this.logger.warn('im-qqbot: 流式发送未成功，降级为普通消息补发');
             // 降级：静态发送（writer 不存在 or 流式失败）
             // 群聊主动参与：agent 输出 [NO_REPLY] 表示保持沉默
             const text = stripNoReply(this.buffer);

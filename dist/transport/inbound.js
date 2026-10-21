@@ -1,4 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
+import { opsLog } from "../shared/ops-log.js";
 import { classifyContentType, isVoiceContentType, } from "./attachment.js";
 import { clearGroupHistory } from "../features/history-store.js";
 import { NO_REPLY_TOKEN } from "../features/group-engage.js";
@@ -23,6 +24,7 @@ export async function handleInbound(ctx, manager, config, logger) {
     if (!agentBody)
         return;
     logger.info(`Processing: scope=${scope} peerId=${peerId} body="${agentBody.slice(0, 200)}"`);
+    opsLog('inbound', { scope, peer: peerId, sender: msg.senderId, name: msg.senderName ?? '', msgId: msg.messageId, owner: mwState.owner === true, batch: mwState.batch?.items?.length ?? 1, body: agentBody });
     // ── 获取或创建会话 ──
     let record;
     try {

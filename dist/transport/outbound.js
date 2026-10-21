@@ -1,4 +1,5 @@
 import { chunkMarkdownText } from "./chunker.js";
+import { opsLog } from "../shared/ops-log.js";
 import { finishTurn } from "../features/auto-sticker.js";
 import { OutboundBuffer, sendPieces, stripNoReply, unsplit } from "./outbound-buffer.js";
 import { formatToolResult } from "./tool-presenter.js";
@@ -96,6 +97,7 @@ class OutboundRouter {
         this.toolCalls.delete(event.callId);
         if (call === undefined)
             return;
+        opsLog('tool', { name: call.name, session: record.sessionKey, args: (() => { try { return JSON.stringify(call.args); } catch { return ''; } })(), ok: event.error === undefined, error: event.error === undefined ? undefined : String(event.error?.message ?? event.error) });
         if (event.error === undefined && !this.config.showToolResults)
             return;
         const text = formatToolResult(call.name, call.args, event.raw, this.toolsRegistry, record.agent);
@@ -116,6 +118,8 @@ class OutboundRouter {
             this.buffers.delete(sessionId);
         }
         const failure = extractTurnError(event.reason);
+        if (failure !== undefined)
+            opsLog('turn-error', { session: record.sessionKey, code: failure.code, error: failure.message });
         if (failure !== undefined && MODEL_FAILURE_RE.test(`${failure.code} ${failure.message}`)) {
             try {
                 const r = this.manager.markModelBad(record);

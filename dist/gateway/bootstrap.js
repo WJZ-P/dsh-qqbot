@@ -3,7 +3,7 @@ import { SessionManager } from "../session/index.js";
 import { handleInbound, createOutboundHandler } from "../transport/index.js";
 import { ReplyLimiter } from "../transport/reply-limiter.js";
 import { cacheMsgId, cacheEventId } from "../transport/msgid-cache.js";
-import { resolveReplyTarget, sendResolvedMarkdown } from "../transport/reply-target.js";
+import { resolveReplyTarget, sendResolvedMarkdown, sendWithRetry } from "../transport/reply-target.js";
 import { QuestionChannel } from "../features/question-channel.js";
 import { ApprovalChannel } from "../features/approval-channel.js";
 import { decodeButtonData } from "../features/button-utils.js";
@@ -96,7 +96,7 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     // sendMarkdown 统一做被动回复限额管控：同一 msgId 超限/过期时降级主动推送。
     const replyLimiter = new ReplyLimiter({ limit: 4 });
     const sender = {
-        sendMarkdown: (target, content, opts) => sendResolvedMarkdown(bot, resolveReplyTarget(target, replyLimiter, true), content, opts),
+        sendMarkdown: (target, content, opts) => sendWithRetry('markdown', resolveReplyTarget(target, replyLimiter, true), (t) => sendResolvedMarkdown(bot, t, content, opts), String(content ?? '').slice(0, 300)),
         openStream: (target) => bot.openStream({
             target: {
                 scope: target.scope,
@@ -160,10 +160,10 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     // 包装 bot：让文件发送也走 msgId 兜底 + 被动回复限额管控。
     // 注意：SDK 文件发送暂不支持 event_id，故 allowEvent=false，跳过 event 候选。
     const mediaSender = {
-        sendImage: (target, source) => bot.sendImage(resolveReplyTarget(target, replyLimiter, false), source),
-        sendVideo: (target, source) => bot.sendVideo(resolveReplyTarget(target, replyLimiter, false), source),
-        sendVoice: (target, source) => bot.sendVoice(resolveReplyTarget(target, replyLimiter, false), source),
-        sendFile: (target, source, opts) => bot.sendFile(resolveReplyTarget(target, replyLimiter, false), source, opts),
+        sendImage: (target, source) => sendWithRetry('image', resolveReplyTarget(target, replyLimiter, false), (t) => bot.sendImage(t, source), String(source?.localPath ?? source?.url ?? '')),
+        sendVideo: (target, source) => sendWithRetry('video', resolveReplyTarget(target, replyLimiter, false), (t) => bot.sendVideo(t, source), String(source?.localPath ?? source?.url ?? '')),
+        sendVoice: (target, source) => sendWithRetry('voice', resolveReplyTarget(target, replyLimiter, false), (t) => bot.sendVoice(t, source), String(source?.localPath ?? source?.url ?? '')),
+        sendFile: (target, source, opts) => sendWithRetry('file', resolveReplyTarget(target, replyLimiter, false), (t) => bot.sendFile(t, source, opts), String(source?.localPath ?? source?.url ?? '')),
     };
     registerSendFileTool(ctx, mediaSender, manager, config, logger);
     registerSwitchModelTool(ctx, manager, config, logger);

@@ -1,4 +1,5 @@
 import { unsplit } from "./outbound-buffer.js";
+import { opsLog } from "../shared/ops-log.js";
 export class StreamingWriter {
     fullText = '';
     session = null;
@@ -14,7 +15,8 @@ export class StreamingWriter {
     }
     /** 是否应降级为静态发送：从未成功发送过任何分片 */
     get shouldFallback() {
-        return this.sentChunkCount === 0;
+        // 从未成功发出 / 最终文本没推上去 / 收尾 complete 失败（QQ 侧可能整条不显示）→ 静态补发
+        return this.sentChunkCount === 0 || this.finalFailed === true || this.completeFailed === true;
     }
     /** 累积全文（降级静态发送时使用） */
     get text() {
@@ -46,14 +48,36 @@ export class StreamingWriter {
         // 立即把最终累积文本入队（覆盖节流未触发的场景）
         this.enqueue();
         await this.chain;
-        // 只要 session 存在就 complete（关闭流式消息，无论是否降级）
+        // 最终全文推送失败：重试最多 3 次
+        if (this.session && this.lastUpdateFailed) {
+            this.finalFailed = true;
+            for (let i = 0; i < 3 && this.finalFailed; i++) {
+                await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+                try {
+                    await this.session.update(unsplit(this.fullText));
+                    this.finalFailed = false;
+                    this.sentChunkCount++;
+                }
+                catch (err) {
+                    this.deps.logger.warn(`im-qqbot: stream final update retry ${i + 1}/3 failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
+            }
+        }
+        // 只要 session 存在就 complete（关闭流式消息，无论是否降级）；失败重试 3 次
         if (this.session) {
-            try {
-                await this.session.complete();
+            this.completeFailed = true;
+            for (let i = 0; i < 3 && this.completeFailed; i++) {
+                if (i)
+                    await new Promise((r) => setTimeout(r, 800 * i));
+                try {
+                    await this.session.complete();
+                    this.completeFailed = false;
+                }
+                catch (err) {
+                    this.deps.logger.error(`im-qqbot: stream complete failed (${i + 1}/3): ${err instanceof Error ? err.message : String(err)}`);
+                }
             }
-            catch (err) {
-                this.deps.logger.error(`im-qqbot: stream complete failed: ${err instanceof Error ? err.message : String(err)}`);
-            }
+            opsLog('stream', { to: this.deps.target?.targetId, ok: !this.shouldFallback, chunks: this.sentChunkCount, finalFailed: this.finalFailed === true, completeFailed: this.completeFailed, chars: this.fullText.length });
         }
     }
     /** 中止（异常/取消）：关闭已打开的流式会话，避免悬挂 */
@@ -102,9 +126,11 @@ export class StreamingWriter {
             // 分条标记在流式里显示为换行（流式是同一条消息，无法真正分条）
             await this.session.update(unsplit(this.fullText).replace(/\[SPL?I?T?$/, ''));
             this.sentChunkCount++;
+            this.lastUpdateFailed = false;
         }
         catch (err) {
-            // update 失败：不标记 failed（session 已打开，finish 会 complete 关闭）
+            // update 失败：不标记 failed（session 已打开，finish 会重试最终文本 + complete 关闭）
+            this.lastUpdateFailed = true;
             this.deps.logger.warn(`im-qqbot: stream update failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }

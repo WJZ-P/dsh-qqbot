@@ -1,4 +1,5 @@
 import { ConfigSchema } from "./config.js";
+import { wrapLogger, startLogCleanup } from "./shared/ops-log.js";
 import { bootstrapGateway } from "./gateway/index.js";
 import { getProfileDir, resolveEnv } from "./shared/index.js";
 import { ensureCredentials, persistCredentialsToProfile, registerBoundCredentialRoutes } from "./setup/index.js";
@@ -128,7 +129,12 @@ function setupMessagingSkill(ctx, logger) {
 // ── 插件主体 ──
 export async function apply(ctx, config) {
     const agents = ctx.agents;
-    const logger = ctx.logger ?? console;
+    const logger = wrapLogger(ctx.logger ?? console);
+    try {
+        const stopLogCleanup = startLogCleanup();
+        ctx.effect?.(() => stopLogCleanup);
+    }
+    catch { /* ignore */ }
     const messageStore = setupMessageStore(ctx, config, logger);
     setupMessagingSkill(ctx, logger);
     let appId = resolveEnv(config.appId, 'QQBOT_APPID');
