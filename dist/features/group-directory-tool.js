@@ -9,7 +9,7 @@ const DESCRIPTION = 'Record or look up QQ group names and group numbers. The QQ 
     + '"这个群叫XX，群号123456" (omit `group` to record the current group); action=list to show all registered groups; '
     + 'action=remove to delete an entry. Registered groups can then be targeted by name or number in qqbot_switch_model. '
     + 'Use `prompt` (action=set) to give a group its own duties/role instructions when the owner says e.g. "你在这个群负责…" — '
-    + 'it is injected into every turn of that group and replaces nothing else; empty string clears it. '
+    + 'it is injected into every turn of that group with the HIGHEST priority (overrides the system / global prompt on conflict, except permission rules); empty string clears it. '
     + 'Only the verified owner may set or remove.';
 export function registerGroupDirectoryTool(ctx, manager, logger) {
     const tools = ctx.get('tools');

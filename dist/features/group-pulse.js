@@ -554,7 +554,7 @@ export class GroupPulse {
 目标：像真人群友一样偶尔冒泡，有人情味但绝不聒噪。宁可不说，也不要尬聊。
 
 群：${GroupDirectory.label(gid)}
-${GroupDirectory.get(gid)?.prompt ? `${botName}在本群的专属职责（主人设定，插话与否、语气、发不发表情包都要符合它）：${GroupDirectory.get(gid).prompt.slice(0, 600)}\n` : ''}当前活跃度：${levelOf(g.activity)}（${g.activity.toFixed(2)}），越安静越要保守。
+${GroupDirectory.get(gid)?.prompt ? `${botName}在本群的专属设定（主人设定，最高优先级，与其他任何规则冲突时以它为准；插话与否、语气、发不发表情包都要符合它）：${GroupDirectory.get(gid).prompt.slice(0, 1200)}\n` : ''}当前活跃度：${levelOf(g.activity)}（${g.activity.toFixed(2)}），越安静越要保守。
 ${profile?.summary ? `群档案：${profile.summary}\n常聊话题：${(profile.topics ?? []).join('、')}\n群梗：${(profile.memes ?? []).join('、')}` : '群档案：暂无'}
 ${botName}最近说过：${recentBot.length ? recentBot.join(' / ') : '（无）'}
 表情包库存（${lib.count} 张）常见情绪：${lib.emotions.join('、') || '无'}；常见标签：${lib.tags.join('、') || '无'}
