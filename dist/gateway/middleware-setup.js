@@ -8,6 +8,7 @@ import { getHistoryStore, historyGroupKey } from "../features/history-store.js";
 import { messageRecorder } from "../features/message-store.js";
 import { createGroupEngage } from "../features/group-engage.js";
 import { SleepClock, sleepGate } from "../features/sleep-clock.js";
+import { createBatchMerger } from "../features/batch-merge.js";
 /** 去掉开头的 @标记 / 空白，返回命中的唤起前缀（无则 null） */
 function matchTriggerPrefix(content, prefixes) {
     if (!Array.isArray(prefixes) || prefixes.length === 0 || typeof content !== 'string')
@@ -120,9 +121,11 @@ export function setupMiddlewares(bot, config, manager, logger, messageStore = nu
     // 8.5. 待答问题截获（在 concurrencyGuard 之前，答案消息不排队直接作答）
     bot.use(questionAnswer(manager));
     // 9. 并发串行 + 消息合并（同 peer 排队，避免 session 冲突）
+    // 批量拉取：回复期间新来的消息排队，本轮结束后最多取最近 batchMax 条合成一轮，一次回复不同的人
     bot.use(concurrencyGuard({
         strategy: 'merge',
-        maxQueue: config.maxQueue,
+        maxQueue: Math.max(config.maxQueue ?? 20, (config.batchMax ?? 10) * 2),
+        onMerge: createBatchMerger(() => config.batchMax ?? 10, logger),
         maxProcessingMs: config.processingTimeoutMs,
     }));
     // 10. C2C 输入状态指示

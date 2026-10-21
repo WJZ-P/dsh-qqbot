@@ -97,6 +97,7 @@ export const ConfigSchema = Schema.object({
     streaming: Schema.boolean().default(true).description('是否启用流式输出（群聊始终不启用）'),
     sessionIdleTimeout: Schema.number().default(30 * 60 * 1000).description('会话闲置超时(ms)'),
     maxQueue: Schema.number().default(20).description('并发队列最大长度'),
+    batchMax: Schema.number().min(1).max(30).default(10).description('批量拉取：回复期间新来的消息合并成一轮，最多取最近几条（1 = 不合并、只回最新一条）'),
     processingTimeoutMs: Schema.number().default(30 * 60 * 1000).description('处理超时(ms)，超时中断当前 LLM 调用'),
     askTimeoutMs: Schema.number().default(5 * 60 * 1000).description('待答问题超时(ms)，超时自动拒绝并提示'),
     historyLimit: Schema.number().default(10).description('群历史缓冲条数'),

@@ -152,6 +152,18 @@ export function recordReply(gid, now = Date.now()) {
     }
     catch { /* ignore */ }
 }
+/** 撤销最近 k 次计数（批量合并：多条消息只回一次，只算一次额度） */
+export function unrecordReply(gid, k) {
+    try {
+        if (!(k > 0))
+            return;
+        const g = entry(gid);
+        g.ts.sort((a, b) => a - b).splice(Math.max(0, g.ts.length - k), k);
+        g.dayCount = Math.max(0, g.dayCount - k);
+        save();
+    }
+    catch { /* ignore */ }
+}
 /** 水群用：额度是否已满（满了返回原因文字） */
 export function quotaBlocked(gid, config) {
     try {
