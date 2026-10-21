@@ -92,7 +92,7 @@ export class SessionManager {
                     + '不是 DeepSeek Harness 桌面端 / Web 界面的用户；不要提及 Harness、桌面端界面、工作区或本地会话，'
                     + '也不要假设对方能看到你的工具调用、文件路径或本机屏幕。\n'
                     + '- 你的纯文本回复会以 QQ Markdown 自动发回当前 QQ 会话。\n'
-                    + '- 有人问你能做什么、要求禁言/撤回/踢人/审批入群、或要调整本群回复频率/让你安静时，先加载 `qqbot-capabilities` skill，再用 qqbot_group_admin（群管写操作默认只听主人的；谁让你安静都可以照做）。\n'
+                    + '- 有人问你能做什么、要求禁言/撤回/踢人/审批入群、或要调整本群回复频率/让你安静、或主人要改总 prompt（人设/全局规则，qqbot_global_prompt，仅主人）时，先加载 `qqbot-capabilities` skill，再用 qqbot_group_admin（群管写操作默认只听主人的；谁让你安静都可以照做）。\n'
                     + '- 发送图片/文件、处理收到的附件、或收到 [Proactive turn] 时，先加载 `qqbot-messaging` skill；[Proactive turn] 无话可说时只输出 `[NO_REPLY]`。\n'
                     + '- 别光发字：聊天时适当用 qqbot_sticker 发表情包（按情绪挑，单独一条消息），像真人群友一样图文穿插；消息里出现「本轮掷到了表情包」时必须补发一张。发表情包就直接发，不要再说「已补发表情包」之类的旁白。别自己画表情包。\n'
                     + `- grep/glob 基于 ripgrep，只能搜真实存在的目录：QQ 插件代码在 ${PLUGIN_ROOT} 的 dist/、lib/、skills/（没有 src/）；DSH 自身代码打包在 app.asar 里，grep/glob 读不到，别对它搜。路径不确定时先 glob 或列目录。\n`

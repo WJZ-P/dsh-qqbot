@@ -22,6 +22,7 @@ import { registerStickerTool } from "../features/sticker-tool.js";
 import { registerWebSearchTool } from "../features/web-search-tool.js";
 import { registerGroupMemoryTool } from "../features/group-memory-tool.js";
 import { registerGroupAdminTool } from "../features/group-admin-tool.js";
+import { registerGlobalPromptTool } from "../features/global-prompt-tool.js";
 import { GroupAdminApi } from "../features/group-admin.js";
 import { registerPulseRoutes } from "../setup/pulse-routes.js";
 /**
@@ -186,6 +187,12 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     }
     catch (err) {
         logger.warn(`im-qqbot: qqbot_group_admin 注册失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+        registerGlobalPromptTool(ctx, manager, config, logger);
+    }
+    catch (err) {
+        logger.warn(`im-qqbot: qqbot_global_prompt 注册失败: ${err instanceof Error ? err.message : String(err)}`);
     }
     try {
         registerWebSearchTool(ctx, logger);

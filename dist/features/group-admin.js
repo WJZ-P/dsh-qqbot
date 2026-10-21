@@ -31,6 +31,7 @@ export const CAPABILITIES = [
     { id: 'proactive', source: 'plugin', category: '调控', name: '主动插话档位（正常 / 少说 / 多说 / 关闭）', how: 'qqbot_group_admin set_proactive · 面板', requires: '主人', note: '只影响主动插话；@ 和唤起前缀照常回复' },
     { id: 'quiet', source: 'plugin', category: '调控', name: '安静模式（暂停主动插话 N 分钟）', how: 'qqbot_group_admin quiet', requires: '任何人', note: '群友说「小喵安静会儿」时用；最长 7 天' },
     { id: 'memory', source: 'plugin', category: '记忆', name: '群记忆', how: 'qqbot_group_memory', requires: '增改任何人；删主人条目/清空仅主人', note: '每群 60 条，每轮注入' },
+    { id: 'global_prompt', source: 'plugin', category: '记忆', name: '修改总 prompt（全部群 / 全部私聊的人设与规则）', how: 'qqbot_global_prompt', requires: '仅主人', note: '查看 / 追加 / 替换 / 整段覆盖；下一条起生效，本轮后永久保存' },
     { id: 'duty', source: 'plugin', category: '记忆', name: '群登记与专属职责', how: 'qqbot_group_directory · 面板', requires: '主人', note: '群名 / 群号 / 本群 prompt' },
     { id: 'sticker', source: 'plugin', category: '互动', name: '表情包', how: 'qqbot_sticker', requires: '无', note: '收集群友表情包、按情绪发送' },
     { id: 'pulse', source: 'plugin', category: '互动', name: '水群引擎（主动插话 / 复读 / 群档案）', how: '自动', requires: '无', note: '按活跃度自适应频率' },
