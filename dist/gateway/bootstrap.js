@@ -186,7 +186,7 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
         const webServer = scoped.webServer;
         if (typeof webServer?.register !== 'function')
             return;
-        const dispose = registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger });
+        const dispose = registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store: messageStore });
         scoped.effect(() => dispose, 'im-qqbot.pulse-routes');
     });
     // ── 生命周期 ──

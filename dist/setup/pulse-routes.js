@@ -2,7 +2,8 @@
  * 水群 / 表情包面板路由
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH } from "../shared/bind-protocol.js";
+import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH } from "../shared/bind-protocol.js";
+import { GroupDirectory, GROUP_PROMPT_MAX } from "../features/group-directory.js";
 import { StickerLibrary } from "../features/sticker-library.js";
 function trusted(req) {
     const origin = req.headers.origin;
@@ -19,12 +20,12 @@ function sendJson(res, status, body) {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify(body));
 }
-async function readJsonBody(req) {
+async function readJsonBody(req, max = 4096) {
     const chunks = [];
     let size = 0;
     for await (const chunk of req) {
         size += chunk.length;
-        if (size > 4096)
+        if (size > max)
             throw new Error('request body too large');
         chunks.push(chunk);
     }
@@ -42,7 +43,7 @@ function guard(req, res, method) {
     return true;
 }
 const errText = (err) => (err instanceof Error ? err.message : String(err));
-export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger }) {
+export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store = null }) {
     const lib = StickerLibrary.shared();
     const running = new Set();
     const background = (name, fn) => {
@@ -52,7 +53,87 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
         void fn().catch((err) => logger.warn(`im-qqbot: ${name} 失败: ${errText(err)}`)).finally(() => running.delete(name));
         return true;
     };
+    /** 已知的群：群目录 ∪ 水群状态 ∪ 消息库 */
+    const knownGroups = () => {
+        const map = new Map();
+        const touch = (id) => {
+            if (typeof id !== 'string' || !id)
+                return null;
+            if (!map.has(id))
+                map.set(id, { groupOpenid: id, count: 0, lastAt: null });
+            return map.get(id);
+        };
+        for (const g of GroupDirectory.list())
+            touch(g.openid);
+        try {
+            for (const g of pulse?.status?.().groups ?? [])
+                touch(g.groupOpenid);
+        }
+        catch { /* ignore */ }
+        try {
+            for (const g of store?.stats?.().groups ?? []) {
+                const e = touch(g.groupOpenid);
+                if (e) {
+                    e.count = Number(g.count ?? 0);
+                    e.lastAt = g.lastAt ?? null;
+                }
+            }
+        }
+        catch { /* ignore */ }
+        return [...map.values()].map((e) => {
+            const d = GroupDirectory.get(e.groupOpenid) ?? {};
+            return { ...e, name: d.name ?? '', number: d.number ?? '', note: d.note ?? '', prompt: d.prompt ?? '', label: GroupDirectory.label(e.groupOpenid) };
+        }).sort((a, b) => (b.prompt ? 1 : 0) - (a.prompt ? 1 : 0) || String(b.lastAt ?? '').localeCompare(String(a.lastAt ?? '')));
+    };
     const disposers = [
+        webServer.register({
+            kind: 'exact',
+            path: GROUPS_PATH,
+            handler: async (req, res) => {
+                if (req.method === 'GET') {
+                    if (!guard(req, res, 'GET'))
+                        return;
+                    sendJson(res, 200, { ok: true, max: GROUP_PROMPT_MAX, groups: knownGroups() });
+                    return;
+                }
+                if (!guard(req, res, 'POST'))
+                    return;
+                let body;
+                try {
+                    body = await readJsonBody(req, 64 * 1024);
+                }
+                catch (err) {
+                    sendJson(res, 400, { ok: false, error: errText(err) });
+                    return;
+                }
+                const gid = typeof body.groupOpenid === 'string' ? body.groupOpenid.trim().toUpperCase() : '';
+                if (!/^[0-9A-F]{32}$/.test(gid)) {
+                    sendJson(res, 400, { ok: false, error: 'groupOpenid 无效' });
+                    return;
+                }
+                const patch = {};
+                for (const k of ['name', 'number', 'prompt']) {
+                    if (body[k] === undefined)
+                        continue;
+                    if (typeof body[k] !== 'string') {
+                        sendJson(res, 400, { ok: false, error: `${k} 必须是字符串` });
+                        return;
+                    }
+                    patch[k] = body[k];
+                }
+                if (patch.number && !/^\d{5,12}$/.test(patch.number.trim())) {
+                    sendJson(res, 400, { ok: false, error: '群号应为 5–12 位数字' });
+                    return;
+                }
+                if (patch.prompt && patch.prompt.length > GROUP_PROMPT_MAX) {
+                    sendJson(res, 400, { ok: false, error: `群专属 prompt 最长 ${GROUP_PROMPT_MAX} 字` });
+                    return;
+                }
+                GroupDirectory.set(gid, patch);
+                logger.info(`im-qqbot: 面板更新群 ${gid}（prompt ${(patch.prompt ?? '').length} 字）`);
+                sendJson(res, 200, { ok: true, groups: knownGroups() });
+            },
+        }),
         webServer.register({
             kind: 'exact',
             path: PULSE_STATUS_PATH,

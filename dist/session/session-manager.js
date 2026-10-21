@@ -112,6 +112,12 @@ export class SessionManager {
             const sections = [channel, ...kept];
             if (prompt)
                 sections.push({ name: 'qqbot:scope-prompt', order: 90, text: prompt });
+            if (record.scope === 'group' && groupInfo?.prompt) {
+                sections.push({
+                    name: 'qqbot:group-duty', order: 92,
+                    text: `【本群专属职责】（主人为这个群单独设定；与上面的通用设定冲突时以这里为准，但权限规则不变）\n${groupInfo.prompt}`,
+                });
+            }
             if (record.scope === 'group') {
                 try {
                     const profile = getActivePulse()?.profiles?.get(record.peerId);

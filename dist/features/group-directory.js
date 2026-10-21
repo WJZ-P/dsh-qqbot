@@ -1,5 +1,5 @@
 /**
- * 群目录 — group_openid → { name, number, note } 的 KV 记录。
+ * 群目录 — group_openid → { name, number, note, prompt } 的 KV 记录（prompt = 群专属职责/人设，最长 4000 字）。
  *
  * QQ 官方机器人 API 不下发群名和群号，只给 group_openid；由主人在聊天中告诉机器人
  * （qqbot_group_directory 工具）或在面板中录入。存储：~/.dsh-qqbot/group-directory.json
@@ -9,6 +9,9 @@ import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 const PATH = resolve(homedir(), '.dsh-qqbot', 'group-directory.json');
 let cache = null;
+const FIELDS = ['name', 'number', 'note', 'prompt'];
+export const GROUP_PROMPT_MAX = 4000;
+const maxLen = (k) => (k === 'prompt' ? GROUP_PROMPT_MAX : 200);
 function load() {
     if (cache !== null)
         return cache;
@@ -27,8 +30,8 @@ function load() {
 }
 function sanitize(v) {
     const out = {};
-    for (const k of ['name', 'number', 'note']) {
-        const s = typeof v[k] === 'string' || typeof v[k] === 'number' ? String(v[k]).trim().slice(0, 200) : '';
+    for (const k of FIELDS) {
+        const s = typeof v[k] === 'string' || typeof v[k] === 'number' ? String(v[k]).trim().slice(0, maxLen(k)) : '';
         if (s)
             out[k] = s;
     }
@@ -55,10 +58,10 @@ export const GroupDirectory = {
     set(openid, patch) {
         const map = load();
         const merged = { ...(map.get(openid) ?? {}) };
-        for (const k of ['name', 'number', 'note']) {
+        for (const k of FIELDS) {
             if (patch[k] === undefined)
                 continue;
-            const s = String(patch[k]).trim().slice(0, 200);
+            const s = String(patch[k]).trim().slice(0, maxLen(k));
             if (s)
                 merged[k] = s;
             else

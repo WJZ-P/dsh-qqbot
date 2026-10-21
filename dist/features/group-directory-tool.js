@@ -8,6 +8,8 @@ const DESCRIPTION = 'Record or look up QQ group names and group numbers. The QQ 
     + 'so names/numbers are known only after the owner tells you. Use action=set when the owner says something like '
     + '"这个群叫XX，群号123456" (omit `group` to record the current group); action=list to show all registered groups; '
     + 'action=remove to delete an entry. Registered groups can then be targeted by name or number in qqbot_switch_model. '
+    + 'Use `prompt` (action=set) to give a group its own duties/role instructions when the owner says e.g. "你在这个群负责…" — '
+    + 'it is injected into every turn of that group and replaces nothing else; empty string clears it. '
     + 'Only the verified owner may set or remove.';
 export function registerGroupDirectoryTool(ctx, manager, logger) {
     const tools = ctx.get('tools');
@@ -26,6 +28,7 @@ export function registerGroupDirectoryTool(ctx, manager, logger) {
                 name: { type: 'string', description: 'For set: group display name. Empty string clears it.' },
                 number: { type: 'string', description: 'For set: QQ group number (群号). Empty string clears it.' },
                 note: { type: 'string', description: 'For set: optional free-form note about the group.' },
+                prompt: { type: 'string', description: 'For set: this group\'s dedicated instructions (your duties/role/tone in this group, up to 4000 chars). Empty string clears it. Write it as instructions to yourself.' },
             },
             required: ['action'],
             additionalProperties: false,
@@ -53,7 +56,7 @@ export function registerGroupDirectoryTool(ctx, manager, logger) {
             const record = exec.agent !== undefined ? manager.findByAgent(exec.agent) : undefined;
             if (record === undefined)
                 throw new Error('qqbot_group_directory 只能在 QQ 会话中使用');
-            const fmt = (g) => `${GroupDirectory.label(g.openid)}${g.note ? `（${g.note}）` : ''} — openid ${g.openid}${g.openid === record.peerId ? ' ← 当前群' : ''}`;
+            const fmt = (g) => `${GroupDirectory.label(g.openid)}${g.note ? `（${g.note}）` : ''} — openid ${g.openid}${g.openid === record.peerId ? ' ← 当前群' : ''}${g.prompt ? `\n  群专属职责：${g.prompt.length > 300 ? `${g.prompt.slice(0, 300)}…` : g.prompt}` : ''}`;
             if (args.action === 'list') {
                 return { ok: true, groups: GroupDirectory.list().map(fmt) };
             }
@@ -79,8 +82,8 @@ export function registerGroupDirectoryTool(ctx, manager, logger) {
                 throw new Error(`未知 action: ${String(args.action)}`);
             if (args.number !== undefined && String(args.number).trim() !== '' && !/^\d{5,12}$/.test(String(args.number).trim()))
                 return { ok: false, error: '群号应为 5–12 位数字' };
-            const entry = GroupDirectory.set(openid, { name: args.name, number: args.number, note: args.note });
-            logger.info(`im-qqbot: 群目录登记 ${openid} → ${JSON.stringify(entry)}`);
+            const entry = GroupDirectory.set(openid, { name: args.name, number: args.number, note: args.note, prompt: args.prompt });
+            logger.info(`im-qqbot: 群目录登记 ${openid} → ${JSON.stringify({ ...entry, prompt: entry.prompt ? `${entry.prompt.length} 字` : undefined })}`);
             return { ok: true, entry: fmt({ openid, ...entry }) };
         },
     });

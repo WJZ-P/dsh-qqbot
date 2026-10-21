@@ -36,4 +36,6 @@ export const STICKERS_LIST_PATH = '/qqbot/im-qqbot/stickers/list';
 export const STICKERS_FILE_PATH = '/qqbot/im-qqbot/stickers/file';
 /** 表情包修改（POST {id, action:'enable'|'disable'|'delete'|'retag'}） */
 export const STICKERS_UPDATE_PATH = '/qqbot/im-qqbot/stickers/update';
+/** 群列表 + 群专属 prompt（GET 列表 / POST {groupOpenid, name?, number?, prompt?}） */
+export const GROUPS_PATH = '/qqbot/im-qqbot/groups';
 //# sourceMappingURL=bind-protocol.js.map
