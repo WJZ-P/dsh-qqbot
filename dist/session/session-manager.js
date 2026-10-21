@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 /** 插件根目录（dist/session/ 往上两级），给模型指路用 */
 const PLUGIN_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/[\\/]$/, '');
 import { getActivePulse } from "../features/group-pulse.js";
+import { uraSection } from "../features/ura-mode.js";
 /**
  * QQ 会话中移除的 Harness 默认 prompt section：身份/人设、桌面 Web 界面、交付文件卡片、
  * @路径引用、Harness 源码、计划模式、goal/workflow 编排——这些都面向桌面端用户，对 QQ 用户无意义且浪费 token。
@@ -165,6 +166,10 @@ export class SessionManager {
             const duty = sections.findIndex((s) => s.name === 'qqbot:group-duty');
             if (duty >= 0)
                 sections.push(sections.splice(duty, 1)[0]);
+            // 里模式：主人私有 prompt 原样插到最开头
+            const ura = uraSection();
+            if (ura)
+                sections.unshift(ura);
             return { ...assembled, sections };
         };
         this.ctx.on('system-prompt/assemble', assemble);

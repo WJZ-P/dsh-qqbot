@@ -9,6 +9,7 @@ import { messageRecorder } from "../features/message-store.js";
 import { createGroupEngage } from "../features/group-engage.js";
 import { SleepClock, sleepGate } from "../features/sleep-clock.js";
 import { createBatchMerger } from "../features/batch-merge.js";
+import { uraModeSwitch } from "../features/ura-mode.js";
 /** 去掉开头的 @标记 / 空白，返回命中的唤起前缀（无则 null） */
 function matchTriggerPrefix(content, prefixes) {
     if (!Array.isArray(prefixes) || prefixes.length === 0 || typeof content !== 'string')
@@ -106,6 +107,8 @@ export function setupMiddlewares(bot, config, manager, logger, messageStore = nu
         }
         await next();
     });
+    // 6.7. 表 / 里模式切换（仅主人；指令不进 LLM）
+    bot.use(uraModeSwitch(bot, logger));
     // 6.8. 每群每分钟回复限频（超限回固定可爱台词，不进 LLM）
     bot.use(groupRateLimiter(config, bot, logger));
     // 7. 三层限流（sender / group / global）
