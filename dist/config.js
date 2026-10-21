@@ -69,7 +69,6 @@ export const ConfigSchema = Schema.object({
         harvestKeywords: ['甘城猫猫表情包', '猫猫表情包', 'Claude 表情包', '熊猫头表情包', '小猫咪表情包'],
         nightly: true,
     }).description('水群引擎'),
-    serperApiKey: Schema.string().default('').description('Serper.dev API Key：填写后 qqbot_web_search 优先使用谷歌搜索结果（免费额度 2500 次）'),
     fullAccess: Schema.boolean().default(true).description('QQ 会话工具权限完全放开（danger-full-access + 不弹审批）；敏感操作由 prompt 规则按主人身份把关'),
     modelSwitch: Schema.union(['owner', 'anyone']).default('owner').description('谁可以在聊天中用一句话让机器人切换模型'),
     replaceHarnessPrompt: Schema.boolean().default(true).description('QQ 会话移除 DeepSeek Harness 桌面端的默认身份/界面提示词'),

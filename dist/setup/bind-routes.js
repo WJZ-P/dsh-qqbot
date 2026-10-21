@@ -9,7 +9,7 @@ const EDITABLE_CONFIG_KEYS = new Set([
     'requireMention', 'triggerPrefixes', 'streaming', 'showToolResults', 'debug',
     'provider', 'model', 'preset',
     'groupPrompt', 'directPrompt',
-    'access', 'groupEngage', 'sleep', 'replaceHarnessPrompt', 'modelSwitch', 'fullAccess', 'pulse', 'serperApiKey',
+    'access', 'groupEngage', 'sleep', 'replaceHarnessPrompt', 'modelSwitch', 'fullAccess', 'pulse',
 ]);
 /** 白名单键的子 Schema（服务端校验：客户端校验仅为体验，安全边界在宿主） */
 const EDITABLE_CONFIG_SCHEMAS = {
@@ -30,12 +30,6 @@ const EDITABLE_CONFIG_SCHEMAS = {
     access: (v) => AccessControlSchema(v),
     replaceHarnessPrompt: (v) => booleanSchema(v, 'replaceHarnessPrompt'),
     fullAccess: (v) => booleanSchema(v, 'fullAccess'),
-    serperApiKey: (v) => {
-        if (typeof v !== 'string' || v.length > 128 || /\s/.test(v.trim()))
-            throw new TypeError('serperApiKey 格式不正确');
-        // 面板输入 "清除" / "clear" 表示删除已保存的 Key
-        return /^(清除|clear|-)$/i.test(v.trim()) ? '' : v.trim();
-    },
     modelSwitch: (v) => {
         if (v !== 'owner' && v !== 'anyone')
             throw new TypeError('modelSwitch 必须是 owner 或 anyone');
@@ -297,10 +291,7 @@ async function handleConfig(req, res, options) {
     if (req.method === 'GET') {
         const current = options.currentConfig?.() ?? {};
         // appSecret 永不回传；其余（含只读 cwd）原样回显
-        const { appSecret: _s, serperApiKey: _k, ...safe } = current;
-        // Serper Key 同样不回传明文，只告知是否已设置
-        safe.serperApiKey = '';
-        safe.serperApiKeySet = typeof _k === 'string' && _k.length > 0;
+        const { appSecret: _s, ...safe } = current;
         sendJson(res, 200, { config: safe });
         return;
     }

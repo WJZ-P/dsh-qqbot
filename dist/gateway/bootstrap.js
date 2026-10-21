@@ -172,7 +172,7 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     pulseSender.sendImage = (target, source) => mediaSender.sendImage(target, source);
     registerStickerTool(ctx, manager, mediaSender, config, logger);
     try {
-        registerWebSearchTool(ctx, logger, config);
+        registerWebSearchTool(ctx, logger);
     }
     catch (err) {
         logger.warn(`im-qqbot: qqbot_web_search 注册失败: ${err instanceof Error ? err.message : String(err)}`);

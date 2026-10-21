@@ -94,40 +94,8 @@ const ENGINES = [
     { id: 'duckduckgo', url: (q) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=cn-zh`, parse: parseDdg },
     { id: 'sogou', url: (q) => `https://www.sogou.com/web?query=${encodeURIComponent(q)}`, parse: parseSogou },
 ];
-/** 谷歌（经 Serper.dev API；谷歌页面本身要求 JS，无法直接抓取） */
-async function serperGoogle(query, key, limit, signal) {
-    const resp = await fetch('https://google.serper.dev/search', {
-        method: 'POST',
-        headers: { 'X-API-KEY': key, 'content-type': 'application/json' },
-        body: JSON.stringify({ q: query, num: Math.min(20, Math.max(limit, 10)), hl: 'zh-cn' }),
-        signal: AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])]),
-    });
-    if (!resp.ok)
-        throw new Error(`HTTP ${resp.status}${resp.status === 401 || resp.status === 403 ? '（Key 无效或额度用完）' : ''}`);
-    const j = await resp.json();
-    const out = [];
-    const box = j.answerBox;
-    if (box && (box.answer || box.snippet))
-        out.push({ title: box.title ?? '谷歌直接答案', url: box.link ?? 'https://www.google.com/', snippet: String(box.answer ?? box.snippet) });
-    for (const r of j.organic ?? [])
-        out.push({ title: String(r.title ?? ''), url: String(r.link ?? ''), snippet: [r.date, r.snippet].filter(Boolean).join(' · ') });
-    return out;
-}
-export async function webSearch(query, { limit = 8, signal, serperApiKey = '' } = {}) {
+export async function webSearch(query, { limit = 8, signal } = {}) {
     const errors = [];
-    if (serperApiKey) {
-        try {
-            const results = (await serperGoogle(query, serperApiKey, limit, signal)).filter((r) => r.title && /^https?:\/\//.test(r.url));
-            if (results.length > 0)
-                return { engine: 'google', results: results.slice(0, limit) };
-            errors.push('google: 无结果');
-        }
-        catch (err) {
-            if (signal?.aborted)
-                throw err;
-            errors.push(`google: ${err instanceof Error ? err.message : String(err)}`);
-        }
-    }
     for (const engine of ENGINES) {
         {
             try {
@@ -148,8 +116,7 @@ export async function webSearch(query, { limit = 8, signal, serperApiKey = '' } 
     }
     return { engine: 'none', results: [], errors };
 }
-export function registerWebSearchTool(ctx, logger, config = {}) {
-    const serperApiKey = typeof config.serperApiKey === 'string' ? config.serperApiKey.trim() : '';
+export function registerWebSearchTool(ctx, logger) {
     const tools = ctx.get('tools');
     if (!tools?.register) {
         logger.warn('im-qqbot: tools 服务不可用，qqbot_web_search 未注册');
@@ -157,7 +124,7 @@ export function registerWebSearchTool(ctx, logger, config = {}) {
     }
     tools.register({
         name: TOOL_NAME,
-        description: (serperApiKey ? 'Search the web with Google (falling back to DuckDuckGo and Sogou). ' : 'Search the web without any API key (DuckDuckGo, falling back to Sogou). ')
+        description: 'Search the web without any API key (DuckDuckGo, falling back to Sogou). '
             + 'Use this instead of web_search in QQ conversations — the built-in web_search needs a DeepSeek credential that QQ sessions lack. '
             + 'Returns titles, URLs and snippets; read a page in full with web_fetch.',
         parameters: {
@@ -201,11 +168,11 @@ export function registerWebSearchTool(ctx, logger, config = {}) {
             if (!query)
                 throw new Error('qqbot_web_search: `query` must be a non-empty string');
             const limit = Math.max(1, Math.min(15, Number(args.limit) || 8));
-            const r = await webSearch(query.slice(0, 200), { limit, signal: exec?.signal, serperApiKey });
+            const r = await webSearch(query.slice(0, 200), { limit, signal: exec?.signal });
             logger.info(`im-qqbot: qqbot_web_search "${query}" → ${r.engine} ${r.results.length} 条`);
             return r.errors ? r : { engine: r.engine, results: r.results };
         },
     });
-    logger.info(`im-qqbot: qqbot_web_search 工具已注册（${serperApiKey ? '谷歌优先' : 'DuckDuckGo/搜狗'}）`);
+    logger.info('im-qqbot: qqbot_web_search 工具已注册');
 }
 //# sourceMappingURL=web-search-tool.js.map
