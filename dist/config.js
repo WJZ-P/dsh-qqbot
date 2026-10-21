@@ -44,6 +44,7 @@ export const ConfigSchema = Schema.object({
     preset: Schema.string().description('Agent preset id'),
     cwd: Schema.string().description('Agent working directory'),
     requireMention: Schema.boolean().default(true).description('群聊是否需要@bot触发'),
+    triggerPrefixes: Schema.array(Schema.string()).default(['#', '＃']).description('唤起前缀：群消息以其中任一开头时视同 @，必定回复（需接收所有群消息）'),
     groupEngage: GroupEngageSchema.default({
         mode: 'smart',
         minIntervalSec: 60,

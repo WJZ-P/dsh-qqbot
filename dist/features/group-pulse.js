@@ -64,7 +64,12 @@ export function paramsOf(a) {
 }
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const today = () => new Date().toLocaleDateString('sv-SE');
+/** 唤起前缀（构造 GroupPulse 时从 config.triggerPrefixes 设置）；以前缀开头的消息视同 @ */
+let triggerPrefixes = [];
 function isAtBot(msg) {
+    const head = String(msg.content ?? '').replace(/^(\s|<@!?[^>]*>)+/, '');
+    if (triggerPrefixes.some((p) => p && head.startsWith(p)))
+        return true;
     return msg.rawEventType === 'GROUP_AT_MESSAGE_CREATE'
         || (Array.isArray(msg.mentions) && msg.mentions.some((m) => m?.is_you === true))
         || /<@!?[0-9A-F]{32}>/.test(String(msg.content ?? '')) && msg.raw?.mentions?.some?.((m) => m?.is_you === true);
@@ -109,6 +114,7 @@ export class GroupPulse {
     decayTimer;
     judgeRoute;
     constructor({ ctx, config, manager, sender, logger, profiles }) {
+        triggerPrefixes = Array.isArray(config.triggerPrefixes) ? config.triggerPrefixes : [];
         this.ctx = ctx;
         this.config = config;
         this.pulseCfg = normalizePulse(config.pulse);

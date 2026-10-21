@@ -7,6 +7,13 @@ import { getHistoryStore, historyGroupKey } from "../features/history-store.js";
 import { messageRecorder } from "../features/message-store.js";
 import { createGroupEngage } from "../features/group-engage.js";
 import { SleepClock, sleepGate } from "../features/sleep-clock.js";
+/** 去掉开头的 @标记 / 空白，返回命中的唤起前缀（无则 null） */
+function matchTriggerPrefix(content, prefixes) {
+    if (!Array.isArray(prefixes) || prefixes.length === 0 || typeof content !== 'string')
+        return null;
+    const head = content.replace(/^(\s|<@!?[^>]*>)+/, '');
+    return prefixes.find((p) => typeof p === 'string' && p.length > 0 && head.startsWith(p)) ?? null;
+}
 export function setupMiddlewares(bot, config, manager, logger, messageStore = null, pulse = null) {
     // 1. 错误兜底（最外层洋葱皮）
     bot.use(errorHandler());
@@ -57,19 +64,28 @@ export function setupMiddlewares(bot, config, manager, logger, messageStore = nu
     //    requireMention=false + all   → 每条群消息都回复（旧行为）
     const engageMode = config.groupEngage?.mode === 'all' ? 'all' : 'smart';
     const sleepClock = new SleepClock(config.sleep, logger);
+    // 唤起前缀（如 #）：群消息以前缀开头视同 @，必定回复
+    const prefixes = config.triggerPrefixes ?? [];
+    const prefixHit = (ctx) => {
+        const hit = matchTriggerPrefix(ctx.message.content, prefixes);
+        if (hit !== null)
+            ctx.state.triggerPrefix = hit;
+        return hit !== null;
+    };
     if (!config.requireMention && engageMode === 'smart' && pulse !== null && pulse.enabled) {
-        bot.use(mentionGate({ requireMentionInGroup: true }));
+        bot.use(mentionGate({ requireMentionInGroup: true, isImplicitMention: prefixHit }));
     }
     else if (!config.requireMention && engageMode === 'smart') {
         const { isImplicitMention } = createGroupEngage(config.groupEngage, logger, () => sleepClock.isAsleep());
         bot.use(mentionGate({
             requireMentionInGroup: true,
-            isImplicitMention,
+            isImplicitMention: (ctx) => prefixHit(ctx) || isImplicitMention(ctx),
         }));
     }
     else {
         bot.use(mentionGate({
             requireMentionInGroup: config.requireMention,
+            isImplicitMention: prefixHit,
         }));
     }
     // 5.5. 睡眠门控（夜间只有主人能叫醒；其余消息仅落库）
@@ -78,6 +94,16 @@ export function setupMiddlewares(bot, config, manager, logger, messageStore = nu
     bot.use(contentSanitizer({
         parseFaceTags: true,
     }));
+    // 6.5. 去掉唤起前缀本身（"#今天吃什么" → "今天吃什么"）
+    bot.use(async (ctx, next) => {
+        const hit = ctx.state.triggerPrefix;
+        if (typeof hit === 'string' && typeof ctx.message.content === 'string') {
+            const c = ctx.message.content.trimStart();
+            if (c.startsWith(hit))
+                ctx.message.content = c.slice(hit.length).trimStart() || c;
+        }
+        await next();
+    });
     // 7. 三层限流（sender / group / global）
     bot.use(rateLimiter());
     // 8. 斜杠命令（在 concurrencyGuard 之前，命令匹配后不排队直接响应）
