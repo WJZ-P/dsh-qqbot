@@ -20,6 +20,7 @@ import { callLite, parseJsonLoose, pickCheapRoute } from "./llm-lite.js";
 import { EMOTIONS, StickerLibrary } from "./sticker-library.js";
 import { getActiveSleepClock } from "./sleep-clock.js";
 import { GroupDirectory } from "./group-directory.js";
+import { quotaBlocked, recordReply } from "./group-rate-limit.js";
 import { clearGroupHistory } from "./history-store.js";
 import { NO_REPLY_TOKEN } from "./group-engage.js";
 const STATE_PATH = join(homedir(), '.dsh-qqbot', 'group-pulse.json');
@@ -344,6 +345,8 @@ export class GroupPulse {
         return null;
     }
     maybeRepeat(gid) {
+        if (quotaBlocked(gid, this.config))
+            return;
         const b = this.buffer(gid);
         const last = b[b.length - 1];
         const key = last ? this.keyOf(last) : null;
@@ -385,6 +388,7 @@ export class GroupPulse {
         }
         this.repeatDecided.set(decidedKey, { chain, done: true, at: Date.now() });
         g.lastRepeatAt = Date.now();
+        recordReply(gid);
         const delay = 1500 + Math.random() * 3500;
         const target = { scope: 'group', targetId: gid, msgId: last.msgId };
         setTimeout(() => {
@@ -457,6 +461,8 @@ export class GroupPulse {
         const mode = dir?.proactive ?? 'normal';
         const k = mode === 'less' ? 0.5 : mode === 'more' ? 2 : 1;
         const lim = { perHour: Math.max(1, Math.round(prm.perHour * k)), perDay: Math.max(1, Math.round(prm.perDay * k)), minGapMin: prm.minGapMin / k };
+        if (quotaBlocked(gid, this.config))
+            return null; // 回复额度已满：静默跳过（面板「群聊管理」可见 CD）
         if (this.inflight.has(gid))
             return '正在处理';
         const rec = this.manager.getSessionRecord?.('group', gid);
@@ -586,6 +592,7 @@ ${lines.join('\n')}
         }
         g.lastProactiveAt = Date.now();
         g.hourHits.push(Date.now());
+        recordReply(gid);
         g.dayCount += 1;
         g.stats.proactive += 1;
         this.log(gid, 'act', `${doText ? '插话' : '丢表情包'} ${head}：${String(j.reason ?? '').slice(0, 80)}`, { sticker: sticker?.id });

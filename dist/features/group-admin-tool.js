@@ -17,7 +17,7 @@ const DESCRIPTION = 'Manage and tune the CURRENT QQ group. Load the `qqbot-capab
     + 'group_info, bot_state (bot role in group), members, member, mute (member + minutes), unmute, mute_status, '
     + 'recall (message_id or member="quoted"; only within 2 minutes), kick (members, optional blacklist), '
     + 'blacklist (op=list|add|del), join_requests, review_join (member, request_id, approve). '
-    + 'Plugin controls: set_rate (per_minute replies cap, -1 = default), set_proactive (mode normal|less|more|off), '
+    + 'Plugin controls: set_rate (reply quota per_minute / per_hour / per_day, -1 = default, 0 = unlimited; defaults 10/100/200), set_proactive (mode normal|less|more|off), '
     + 'quiet (minutes of no proactive chatting; 0 to end), status (current group settings), capabilities (full ability list). '
     + 'member may be a nickname seen in this group, an openid, "quoted" (sender of the quoted message) or "sender" (sender of the current message). '
     + 'Write actions other than quiet require an owner-triggered turn unless the owner enabled autonomous moderation.';
@@ -52,6 +52,8 @@ export function registerGroupAdminTool(ctx, { manager, bot, store, config, logge
                 approve: { type: 'boolean', description: 'review_join: true approve, false decline.' },
                 reason: { type: 'string', description: 'review_join decline reason / why you act (logged).' },
                 per_minute: { type: 'number', description: 'set_rate: max replies per minute in this group (0 = unlimited, -1 = back to the default).' },
+                per_hour: { type: 'number', description: 'set_rate: max replies per hour (0 = unlimited, -1 = default).' },
+                per_day: { type: 'number', description: 'set_rate: max replies per day, resets at midnight (0 = unlimited, -1 = default).' },
                 mode: { type: 'string', enum: ['normal', 'less', 'more', 'off'], description: 'set_proactive mode.' },
                 cursor: { type: 'string', description: 'Paging cursor for members / blacklist / join_requests.' },
             },
@@ -117,7 +119,7 @@ export function registerGroupAdminTool(ctx, { manager, bot, store, config, logge
                             ok: true,
                             message: [
                                 `群：${GroupDirectory.label(gid)}`,
-                                `每分钟回复上限：${c.rateLimit === 0 ? '不限' : `${c.rateLimit} 次`}${c.rateCustom ? '' : '（默认）'}`,
+                                `回复额度（已用/上限）：本分钟 ${c.used.minute}/${c.limits.minute || '不限'}，近 1 小时 ${c.used.hour}/${c.limits.hour || '不限'}，今天 ${c.used.day}/${c.limits.day || '不限'}${c.cooldown ? `；CD 中，${new Date(c.cooldown.until).toLocaleTimeString('zh-CN', { hour12: false })} 恢复` : ''}`,
                                 `主动插话：${PROACTIVE_TEXT[c.proactive]}${c.quietUntil ? `；安静模式到 ${new Date(c.quietUntil).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}`,
                                 `群记忆：${GroupDirectory.memories(gid).length} 条；专属职责：${GroupDirectory.get(gid)?.prompt ? '有' : '无'}`,
                                 `群管操作权限：${autonomous ? '主人 + 我可自行判断' : '仅主人'}`,
@@ -255,13 +257,22 @@ export function registerGroupAdminTool(ctx, { manager, bot, store, config, logge
                         return { ok: true, message: body.op === 'approve' ? '已通过入群申请' : `已拒绝入群申请${body.add_to_member_blacklist ? '并拉黑' : ''}` };
                     }
                     case 'set_rate': {
-                        const v = args.per_minute;
-                        if (!(Number.isInteger(v) && v >= -1 && v <= RATE_LIMIT_MAX))
-                            return { ok: false, message: `per_minute 需为 0–${RATE_LIMIT_MAX} 的整数，或 -1 恢复默认` };
-                        GroupDirectory.set(gid, { rateLimit: v === -1 ? null : v });
+                        const patch = {};
+                        for (const [arg, key, max] of [['per_minute', 'rateLimit', RATE_LIMIT_MAX], ['per_hour', 'rateHour', 100000], ['per_day', 'rateDay', 100000]]) {
+                            const v = args[arg];
+                            if (v === undefined)
+                                continue;
+                            if (!(Number.isInteger(v) && v >= -1 && v <= max))
+                                return { ok: false, message: `${arg} 需为 0–${max} 的整数，或 -1 恢复默认` };
+                            patch[key] = v === -1 ? null : v;
+                        }
+                        if (!Object.keys(patch).length)
+                            return { ok: false, message: '给出 per_minute / per_hour / per_day 至少一个' };
+                        GroupDirectory.set(gid, patch);
                         const c = pluginControls(gid, config);
-                        audit(`每分钟回复上限 → ${c.rateLimit}`);
-                        return { ok: true, message: `本群每分钟回复上限：${c.rateLimit === 0 ? '不限' : `${c.rateLimit} 次`}${c.rateCustom ? '' : '（默认）'}` };
+                        const f = (k) => `${c.limits[k] === 0 ? '不限' : c.limits[k]}${c.customs[k] ? '' : '(默认)'}`;
+                        audit(`回复额度 → 分 ${c.limits.minute} / 时 ${c.limits.hour} / 天 ${c.limits.day}`);
+                        return { ok: true, message: `本群回复额度：每分钟 ${f('minute')}，每小时 ${f('hour')}，每天 ${f('day')}` };
                     }
                     case 'set_proactive': {
                         if (!PROACTIVE_MODES.includes(args.mode))

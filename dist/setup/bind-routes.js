@@ -56,6 +56,8 @@ const EDITABLE_CONFIG_SCHEMAS = {
         parsed.replies = parsed.replies.map((s) => s.trim()).filter(Boolean);
         if (parsed.replies.length > 30 || parsed.replies.some((s) => s.length > 200))
             throw new TypeError('groupRateLimit.replies 最多 30 句、每句不超过 200 字');
+        parsed.hourReply = String(parsed.hourReply ?? '').trim().slice(0, 200);
+        parsed.dayReply = String(parsed.dayReply ?? '').trim().slice(0, 200);
         return parsed;
     },
     groupEngage: (v) => {

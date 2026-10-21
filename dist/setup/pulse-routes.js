@@ -178,12 +178,14 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                     sendJson(res, 200, {
                         ok: true, max: GROUP_PROMPT_MAX, memoryMax: MEMORY_MAX, rateMax: RATE_LIMIT_MAX,
                         defaultRate: rateStatus('', config).limit,
+                        defaultLimits: rateStatus('', config).limits,
                         summary: {
                             groups: groups.length,
                             groupMessages: groups.reduce((a, g) => a + (g.count || 0), 0),
                             today: groups.reduce((a, g) => a + (g.today || 0), 0),
                             week: groups.reduce((a, g) => a + (g.week || 0), 0),
                             limitedToday: groups.reduce((a, g) => a + (g.rate?.limitedToday || 0), 0),
+                            repliesToday: groups.reduce((a, g) => a + (g.rate?.used?.day || 0), 0),
                         },
                         store: storeInfo,
                         groups,
@@ -230,6 +232,16 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                         return;
                     }
                     patch.rateLimit = r;
+                }
+                for (const [bk, pk] of [['rateHour', 'rateHour'], ['rateDay', 'rateDay']]) {
+                    if (body[bk] === undefined)
+                        continue;
+                    const r = body[bk];
+                    if (r !== null && !(Number.isInteger(r) && r >= 0 && r <= 100000)) {
+                        sendJson(res, 400, { ok: false, error: `${bk === 'rateHour' ? '每小时' : '每天'}次数应为 0–100000 的整数（0 = 不限），或 null 恢复默认` });
+                        return;
+                    }
+                    patch[pk] = r;
                 }
                 if (body.proactive !== undefined) {
                     if (!PROACTIVE_MODES.includes(body.proactive)) {

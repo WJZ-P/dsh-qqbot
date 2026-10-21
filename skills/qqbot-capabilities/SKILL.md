@@ -22,7 +22,7 @@ description: QQ 机器人（小喵）的完整能力清单与群管理/群调控
 | 群管 | 移出成员（可拉黑） | kick | 管理员 + 内邀；单次 ≤20 人 |
 | 群管 | 黑名单 | blacklist op=list/add/del | 只能拉黑已不在群里的人 |
 | 群管 | 入群申请 | join_requests / review_join | 机器人须是管理员 |
-| 调控 | 每分钟回复上限 | set_rate | 默认 10 次/分，超限插件自动回可爱台词，主人不受限 |
+| 调控 | 回复额度（分/时/天） | set_rate per_minute/per_hour/per_day | 默认 10 / 100 / 200，超限插件自动进入 CD 并提示剩余时间（省 token），主人不受限 |
 | 调控 | 主动插话档位 | set_proactive normal/less/more/off | 只影响主动插话，@ 照常回复 |
 | 调控 | 安静模式 | quiet minutes | 暂停主动插话；**任何人**都可以让你安静 |
 | 记忆 | 群记忆 | `qqbot_group_memory` | 见 `qqbot-messaging` 2.8 |
@@ -60,7 +60,7 @@ description: QQ 机器人（小喵）的完整能力清单与群管理/群调控
 {"action":"kick","members":["广告哥"],"blacklist":true,"reason":"发广告"}
 {"action":"join_requests"}
 {"action":"review_join","member":"<申请人openid>","request_id":"<id>","approve":false,"reason":"未回答验证问题"}
-{"action":"set_rate","per_minute":5}            // -1 = 恢复默认，0 = 不限
+{"action":"set_rate","per_minute":5,"per_day":100}  // -1 = 恢复默认，0 = 不限
 {"action":"set_proactive","mode":"less"}
 {"action":"quiet","minutes":60}                  // 0 = 结束安静
 {"action":"status"}                              // 本群当前设置 + 机器人身份
@@ -77,5 +77,5 @@ description: QQ 机器人（小喵）的完整能力清单与群管理/群调控
 
 - 有人嫌你话多 → `quiet`（临时）或主人要求时 `set_proactive less/off`（长期）。
 - 群里希望你更活跃 → 主人要求时 `set_proactive more`。
-- 被 @ 太多、刷屏问你 → 插件已有每分钟上限（默认 10），超限自动回「口干舌燥」台词；主人可用 `set_rate` 调整。
+- 被 @ 太多、刷屏问你 → 插件已有回复额度（默认每分钟 10、每小时 100、每天 200），超限自动提示 CD 剩余时间，水群插话也计入；主人可用 `set_rate` 调整，`status` 能看已用量。
 - 这些设置在面板「群聊管理」里也能改，「能力」页能检测机器人在每个群的身份。

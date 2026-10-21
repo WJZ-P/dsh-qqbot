@@ -9,7 +9,7 @@
  * 供 qqbot_group_admin 工具与面板路由共用。
  */
 import { GroupDirectory, PROACTIVE_MODES, QUIET_MAX_MIN, RATE_LIMIT_MAX } from './group-directory.js';
-import { effectiveLimit } from './group-rate-limit.js';
+import { rateStatus } from './group-rate-limit.js';
 /** 能力目录：面板「能力」页与 skill 共用的事实来源 */
 export const CAPABILITIES = [
     // ── 官方：消息 ──
@@ -27,7 +27,7 @@ export const CAPABILITIES = [
     { id: 'blacklist', source: 'official', category: '群管', name: '群黑名单查询 / 拉黑 / 解除', how: 'qqbot_group_admin blacklist', requires: '管理员 + 白名单（内邀）', note: '只能拉黑已不在群里的人' },
     { id: 'join_requests', source: 'official', category: '群管', name: '查看 / 审批入群申请', how: 'qqbot_group_admin join_requests / review_join', requires: '机器人是管理员', note: '可附带拒绝理由、同时拉黑' },
     // ── 插件 ──
-    { id: 'rate', source: 'plugin', category: '调控', name: '每分钟回复上限', how: 'qqbot_group_admin set_rate · 面板「群聊管理」', requires: '主人', note: '默认 10 次/分，超限回固定可爱台词，主人不受限' },
+    { id: 'rate', source: 'plugin', category: '调控', name: '回复额度（每分钟 / 每小时 / 每天）', how: 'qqbot_group_admin set_rate · 面板「群聊管理」', requires: '主人', note: '默认 10 / 100 / 200 次，超限进入 CD 并提示剩余时间，省 token；主人不受限' },
     { id: 'proactive', source: 'plugin', category: '调控', name: '主动插话档位（正常 / 少说 / 多说 / 关闭）', how: 'qqbot_group_admin set_proactive · 面板', requires: '主人', note: '只影响主动插话；@ 和唤起前缀照常回复' },
     { id: 'quiet', source: 'plugin', category: '调控', name: '安静模式（暂停主动插话 N 分钟）', how: 'qqbot_group_admin quiet', requires: '任何人', note: '群友说「小喵安静会儿」时用；最长 7 天' },
     { id: 'memory', source: 'plugin', category: '记忆', name: '群记忆', how: 'qqbot_group_memory', requires: '增改任何人；删主人条目/清空仅主人', note: '每群 60 条，每轮注入' },
@@ -148,10 +148,14 @@ export function describeBotState(s) {
 /** 插件侧调控状态（给工具与面板） */
 export function pluginControls(gid, config) {
     const d = GroupDirectory.get(gid) ?? {};
-    const limit = effectiveLimit(gid, config);
+    const rs = rateStatus(gid, config);
     return {
-        rateLimit: limit,
-        rateCustom: typeof d.rateLimit === 'number',
+        rateLimit: rs.limits.minute,
+        rateCustom: rs.customs.minute,
+        limits: rs.limits,
+        customs: rs.customs,
+        used: rs.used,
+        cooldown: rs.cooldown,
         proactive: d.proactive ?? 'normal',
         quietUntil: d.quietUntil && d.quietUntil > Date.now() ? d.quietUntil : null,
     };

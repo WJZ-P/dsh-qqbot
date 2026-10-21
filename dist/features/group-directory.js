@@ -21,6 +21,7 @@ export const GROUP_PROMPT_MAX = 4000;
 export const MEMORY_MAX = 60;
 export const MEMORY_TEXT_MAX = 300;
 export const RATE_LIMIT_MAX = 600;
+export const RATE_LONG_MAX = 100000;
 export const PROACTIVE_MODES = ['normal', 'less', 'more', 'off'];
 export const QUIET_MAX_MIN = 7 * 24 * 60;
 const maxLen = (k) => (k === 'prompt' ? GROUP_PROMPT_MAX : 200);
@@ -50,9 +51,9 @@ function sanitizeMemory(m) {
         by: m.by === 'owner' || m.by === 'panel' ? m.by : 'member',
     };
 }
-function normRate(v) {
+function normRate(v, max = RATE_LIMIT_MAX) {
     const n = Math.floor(Number(v));
-    return Number.isFinite(n) && n >= 0 ? Math.min(RATE_LIMIT_MAX, n) : undefined;
+    return Number.isFinite(n) && n >= 0 ? Math.min(max, n) : undefined;
 }
 function sanitize(v) {
     const out = {};
@@ -64,6 +65,11 @@ function sanitize(v) {
     const rate = v.rateLimit === undefined || v.rateLimit === null ? undefined : normRate(v.rateLimit);
     if (rate !== undefined)
         out.rateLimit = rate;
+    for (const k of ['rateHour', 'rateDay']) {
+        const r = v[k] === undefined || v[k] === null ? undefined : normRate(v[k], RATE_LONG_MAX);
+        if (r !== undefined)
+            out[k] = r;
+    }
     if (PROACTIVE_MODES.includes(v.proactive) && v.proactive !== 'normal')
         out.proactive = v.proactive;
     if (typeof v.quietUntil === 'number' && v.quietUntil > Date.now())
@@ -117,6 +123,15 @@ export const GroupDirectory = {
                 delete merged.rateLimit;
             else
                 merged.rateLimit = r;
+        }
+        for (const k of ['rateHour', 'rateDay']) {
+            if (patch[k] === undefined)
+                continue;
+            const r = patch[k] === null || patch[k] === '' ? undefined : normRate(patch[k], RATE_LONG_MAX);
+            if (r === undefined)
+                delete merged[k];
+            else
+                merged[k] = r;
         }
         if (patch.proactive !== undefined) {
             if (patch.proactive === null || patch.proactive === 'normal' || !PROACTIVE_MODES.includes(patch.proactive))

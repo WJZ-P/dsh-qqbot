@@ -39,7 +39,11 @@ export const PulseSchema = Schema.object({
 /** 每群每分钟回复限频（各群可在面板单独覆盖） */
 export const GroupRateLimitSchema = Schema.object({
     perMinute: Schema.number().min(0).max(600).default(10).description('每个群每分钟最多回复次数（0 = 不限；主人不受限）'),
-    replies: Schema.array(Schema.string()).default([]).description('超限时随机回的一句话（留空用内置的可爱台词）'),
+    perHour: Schema.number().min(0).max(100000).default(100).description('每个群每小时最多回复次数（0 = 不限）'),
+    perDay: Schema.number().min(0).max(100000).default(200).description('每个群每天最多回复次数（0 = 不限，0 点重置）'),
+    replies: Schema.array(Schema.string()).default([]).description('每分钟超限时随机回的一句话（{cd}=剩余冷却；留空用内置台词）'),
+    hourReply: Schema.string().default('').description('每小时超限提示（{cd} {used} {limit}；留空用内置）'),
+    dayReply: Schema.string().default('').description('每天超限提示（{cd} {used} {limit}；留空用内置）'),
 });
 /** 群管理工具权限 */
 export const GroupAdminSchema = Schema.object({
