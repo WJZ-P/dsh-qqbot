@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "QQ 机器人",
+    "description": "QQ 机器人通道：在 QQ 群聊和私聊中与 Agent 对话，支持 SQLite 消息存储、群聊主动参与以及图片/文件收发。"
+  }
+}
