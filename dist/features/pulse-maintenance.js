@@ -9,7 +9,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { callLite, parseJsonLoose, pickCheapRoute } from "./llm-lite.js";
+import { callLite, parseJsonLoose, pickCheapRoute, pickVisionRoute } from "./llm-lite.js";
 import { StickerLibrary, setStickerSendSize } from "./sticker-library.js";
 import { readableText } from "./group-pulse.js";
 import { getActiveSleepClock } from "./sleep-clock.js";
@@ -133,6 +133,10 @@ export class PulseMaintenance {
     async route() {
         return pickCheapRoute(this.manager, this.pulse.pulseCfg.judgeModel);
     }
+    /** 打标签要看图：默认模型同组内能看图的模型 */
+    async visionRoute() {
+        return pickVisionRoute(this.manager, this.pulse.pulseCfg.judgeModel);
+    }
     start() {
         const tick = () => {
             void this.tick().catch((err) => this.logger.warn(`im-qqbot: 水群维护失败: ${err instanceof Error ? err.message : String(err)}`));
@@ -189,7 +193,9 @@ export class PulseMaintenance {
                 this.logger.warn(`im-qqbot: 表情包换血/搜集失败: ${err instanceof Error ? err.message : String(err)}`);
             }
             try {
-                const r = await this.library.tagPending(this.ctx, route, 400, this.logger);
+                const vroute = await this.visionRoute();
+                this.logger.info(`im-qqbot: 夜间打标签使用模型 ${vroute.provider}/${vroute.model}`);
+                const r = await this.library.tagPending(this.ctx, vroute, 400, this.logger);
                 if (r.tried > 0)
                     this.logger.info(`im-qqbot: 夜间统一打标签 ${r.ok}/${r.tried}`);
             }

@@ -1,3 +1,4 @@
+import { pickCheapRoute, pickVisionRoute } from "../features/llm-lite.js";
 /**
  * 水群 / 表情包面板路由
  */
@@ -134,6 +135,9 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                         ok: true,
                         configured: config.provider && config.model ? { provider: config.provider, model: config.model } : null,
                         hostDefault: r.resolveDefault?.() ?? null,
+                        botDefault: r.botDefaultRoute?.() ?? null,
+                        background: await pickCheapRoute(manager, config.pulse?.judgeModel).then((x) => x, (e) => ({ error: e.message })),
+                        tagging: await pickVisionRoute(manager, config.pulse?.judgeModel).then((x) => x, (e) => ({ error: e.message })),
                         groups: groups.map((g) => ({ ...g, models: g.models.map((m) => ({ ...m, bad: r.isBad(g.provider, m.id) })) })),
                     });
                 }
@@ -360,7 +364,7 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                         return;
                     }
                     case 'tag':
-                        sendJson(res, 200, { ok: true, started: background('表情包打标签', async () => lib.tagPending(ctx, await maintenance.route(), 20, logger)) });
+                        sendJson(res, 200, { ok: true, started: background('表情包打标签', async () => lib.tagPending(ctx, await maintenance.visionRoute(), 20, logger)) });
                         return;
                     default:
                         sendJson(res, 400, { ok: false, error: '未知操作' });
@@ -433,7 +437,7 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                     case 'retag':
                         lib.update(id, { retag: true });
                         if (maintenance !== null)
-                            background(`重新打标签 ${id}`, async () => lib.tagOne(ctx, await maintenance.route(), id));
+                            background(`重新打标签 ${id}`, async () => lib.tagOne(ctx, await maintenance.visionRoute(), id));
                         break;
                     default:
                         sendJson(res, 400, { ok: false, error: '未知操作' });

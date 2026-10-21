@@ -545,7 +545,7 @@ export class GroupPulse {
         const prm = paramsOf(g.activity);
         const { lines, entries } = this.transcript(gid);
         g.lastJudgeSeq = entries[entries.length - 1]?.seq ?? g.lastJudgeSeq;
-        this.judgeRoute = this.judgeRoute ?? await pickCheapRoute(this.manager, this.pulseCfg.judgeModel);
+        this.judgeRoute = await pickCheapRoute(this.manager, this.pulseCfg.judgeModel);
         const botName = this.pulseCfg.botNames[0] ?? '小喵';
         const profile = this.profiles?.get(gid);
         const lib = this.library.summary(25);

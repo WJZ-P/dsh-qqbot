@@ -198,7 +198,7 @@ export class ModelResolver {
                 let models = [];
                 let failed = false;
                 try {
-                    models = (await llm.listModels(id)).map((m) => ({ id: m.id, name: m.name }));
+                    models = (await llm.listModels(id)).map((m) => ({ id: m.id, name: m.name, vision: Array.isArray(m.inputModalities) ? m.inputModalities.includes('image') : undefined }));
                 }
                 catch {
                     failed = true;
@@ -217,6 +217,28 @@ export class ModelResolver {
         }
         this.groupCache = { at: Date.now(), groups };
         return groups;
+    }
+/** QQ 机器人的默认模型：插件配置 > 所有群默认 > 所有私聊默认 > 宿主默认 */
+    botDefaultRoute() {
+        if (this.config.provider && this.config.model)
+            return { provider: this.config.provider, model: this.config.model };
+        const appKey = (scope) => `qqbot:${this.config.appId}:${scope}:*`;
+        return this.prefs.getOverride(appKey('group')) ?? this.prefs.getOverride(appKey('c2c')) ?? this.resolveDefault();
+    }
+    /** 同一分组里找支持看图的模型（当前模型能看图就用它；不跨分组） */
+    async visionInGroup(route) {
+        const groups = await this.listGrouped();
+        const g = groups.find((x) => x.provider === route?.provider);
+        if (!g || g.failed)
+            return { route };
+        const usable = g.models.filter((m) => !this.isBad(g.provider, m.id));
+        const self = usable.find((m) => m.id === route.model);
+        if (self && self.vision !== false)
+            return { route };
+        const alt = usable.find((m) => m.vision === true);
+        if (alt)
+            return { route: { provider: g.provider, model: alt.id }, fallback: true };
+        return { error: `默认模型所在分组「${g.label}」里没有能看图的可用模型，没法给表情包打标签` };
     }
     /** 某模型调用失败：在本插件内临时视为不可用 */
     markBad(route, minutes = 15) {

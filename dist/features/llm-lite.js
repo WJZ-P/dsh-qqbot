@@ -19,9 +19,11 @@ export function sniffImage(bytes) {
         return 'image/webp';
     return null;
 }
-const CHEAP = [/haiku/i, /flash/i, /mini/i, /lite/i, /small/i];
 /**
- * 选「判断用」的便宜模型：配置 provider/model 优先，否则从可用模型里按 haiku/flash/mini 挑，最后兜底默认模型。
+ * 后台任务（水群判断、表情包打标签、群档案、网上搜图）用的模型：
+ * pulse.judgeModel 显式配置了就用它；否则跟随 **QQ 机器人的默认模型**
+ * （插件配置 > 所有群默认 > 所有私聊默认 > 宿主默认）。
+ * 默认模型不可用时只在同一分组里找替补；同组都不可用直接报错（不跨分组，避免费用变化）。
  */
 export async function pickCheapRoute(manager, configured) {
     const raw = String(configured ?? '').trim();
@@ -29,22 +31,33 @@ export async function pickCheapRoute(manager, configured) {
         const i = raw.indexOf('/');
         return { provider: raw.slice(0, i), model: raw.slice(i + 1) };
     }
-    let models = [];
-    try {
-        models = await manager.listAvailableModels();
-    }
-    catch { /* ignore */ }
+    const r = manager.modelResolver;
+    let route = r.botDefaultRoute();
     if (raw) {
-        const hit = models.find((m) => m.id === raw || m.name === raw);
-        if (hit)
-            return { provider: hit.provider, model: hit.id };
+        try {
+            const groups = await manager.listModelGroups();
+            for (const g of groups) {
+                const hit = g.models.find((m) => m.id === raw || m.name === raw);
+                if (hit) {
+                    route = { provider: g.provider, model: hit.id };
+                    break;
+                }
+            }
+        }
+        catch { /* ignore */ }
     }
-    for (const re of CHEAP) {
-        const hit = models.find((m) => re.test(m.id) || re.test(m.name ?? ''));
-        if (hit)
-            return { provider: hit.provider, model: hit.id };
-    }
-    return manager.modelResolver.resolveDefault();
+    const chk = await r.pickInGroup(route);
+    if (chk.error)
+        throw new Error(chk.error);
+    return chk.route ?? route;
+}
+/** 打标签用：在上面的基础上，确保模型能看图（同组内找，不跨组） */
+export async function pickVisionRoute(manager, configured) {
+    const route = await pickCheapRoute(manager, configured);
+    const v = await manager.modelResolver.visionInGroup(route);
+    if (v.error)
+        throw new Error(v.error);
+    return v.route;
 }
 async function saveImage(attachments, data, mediaType, name) {
     if (typeof attachments.saveImage === 'function')
