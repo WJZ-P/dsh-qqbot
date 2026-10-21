@@ -10,7 +10,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { callLite, parseJsonLoose, pickCheapRoute } from "./llm-lite.js";
-import { StickerLibrary } from "./sticker-library.js";
+import { StickerLibrary, setStickerSendSize } from "./sticker-library.js";
 import { readableText } from "./group-pulse.js";
 import { getActiveSleepClock } from "./sleep-clock.js";
 import { GroupDirectory } from "./group-directory.js";
@@ -124,6 +124,7 @@ export class PulseMaintenance {
         this.logger = logger;
         this.profiles = profiles;
         this.library.setMax(pulse.pulseCfg.stickerMax);
+        setStickerSendSize(pulse.pulseCfg.stickerSize);
         try {
             this.lastNightly = readFileSync(join(homedir(), '.dsh-qqbot', 'pulse-nightly.txt'), 'utf8').trim();
         }

@@ -11,6 +11,27 @@ import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { callLite, parseJsonLoose, sniffImage } from "./llm-lite.js";
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { homedir as _home } from 'node:os';
+const SMALL_DIR = join(_home(), '.dsh-qqbot', 'stickers-small');
+const SHRINK_PY = fileURLToPath(new URL('../../scripts/shrink-sticker.py', import.meta.url));
+const PY_CANDIDATES = [process.env.DSH_QQBOT_PYTHON, join(_home(), '.dsh', 'dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'python', 'python.exe'), 'python3', 'python'].filter(Boolean);
+let stickerSize = 180;
+export function setStickerSendSize(n) {
+    const v = Math.floor(Number(n));
+    stickerSize = Number.isFinite(v) ? Math.max(0, Math.min(1024, v)) : 180;
+}
+function runPy(args) {
+    return new Promise((resolve, reject) => {
+        const tryAt = (i) => {
+            if (i >= PY_CANDIDATES.length)
+                return reject(new Error('找不到可用的 Python/Pillow'));
+            execFile(PY_CANDIDATES[i], args, { timeout: 30_000, windowsHide: true }, (err) => (err ? tryAt(i + 1) : resolve()));
+        };
+        tryAt(0);
+    });
+}
 export const STICKER_DIR = join(homedir(), '.dsh-qqbot', 'stickers');
 const INDEX_PATH = join(STICKER_DIR, 'index.json');
 export const STICKER_MAX_DEFAULT = 500;
@@ -118,6 +139,32 @@ export class StickerLibrary {
     filePath(id) {
         const e = this.entries.get(id);
         return e?.file ? join(STICKER_DIR, e.file) : undefined;
+    }
+    /**
+     * 发送用的文件：按 stickerSize 等比缩小（GIF 保留动画），缓存在 stickers-small/。
+     * QQ 机器人没有「表情包」消息类型，只能按图片发；图片像素小，QQ 里就显示得小，像真表情包。
+     * 缩小失败时退回原图。
+     */
+    async sendPath(id) {
+        const src = this.filePath(id);
+        if (!src || !existsSync(src))
+            return undefined;
+        const e = this.entries.get(id);
+        if (!stickerSize || (e?.width && e?.height && Math.max(e.width, e.height) <= stickerSize))
+            return src;
+        const dst = join(SMALL_DIR, `${stickerSize}-${e.file}`);
+        if (existsSync(dst))
+            return dst;
+        try {
+            mkdirSync(SMALL_DIR, { recursive: true });
+            const tmp = `${dst}.tmp`;
+            await runPy([SHRINK_PY, src, tmp, String(stickerSize)]);
+            renameSync(tmp, dst);
+            return dst;
+        }
+        catch {
+            return src;
+        }
     }
     hasFile(id) {
         const p = this.filePath(id);
@@ -410,6 +457,10 @@ export class StickerLibrary {
         if (e.file) {
             try {
                 unlinkSync(join(STICKER_DIR, e.file));
+            }
+            catch { /* ignore */ }
+            try {
+                unlinkSync(join(SMALL_DIR, `${stickerSize}-${e.file}`));
             }
             catch { /* ignore */ }
         }

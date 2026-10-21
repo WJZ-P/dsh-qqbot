@@ -86,7 +86,7 @@ export function registerStickerTool(ctx, manager, mediaSender, config, logger) {
                             : lib.pick({ query: args.query, emotion: args.emotion, groupOpenid: gid });
                     if (!e || !lib.hasFile(e.id))
                         return { ok: false, error: '没有找到合适的表情包，那就不发了' };
-                    await mediaSender.sendImage(record.replyTarget, { localPath: lib.filePath(e.id) });
+                    await mediaSender.sendImage(record.replyTarget, { localPath: (await lib.sendPath(e.id)) ?? lib.filePath(e.id) });
                     lib.markSent(e.id, gid);
                     if (record.turnOut)
                         record.turnOut.stickerSent = true;

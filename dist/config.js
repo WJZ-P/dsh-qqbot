@@ -35,6 +35,7 @@ export const PulseSchema = Schema.object({
     repeat: Schema.boolean().default(true).description('偶尔跟着复读（2 人以上连续发同一表情包/短句）'),
     botNames: Schema.array(Schema.string()).default(['小喵']).description('机器人的称呼（群友提到时算作互动）'),
     harvestKeywords: Schema.array(Schema.string()).default(['甘城猫猫表情包', '猫猫表情包', 'Claude 表情包', '熊猫头表情包', '小猫咪表情包']).description('夜间网上搜集表情包的关键词'),
+    stickerSize: Schema.number().min(0).max(1024).default(180).description('发表情包时缩小到最长边多少像素（QQ 按像素显示，越小占位越小；0 = 发原图）'),
     stickerMax: Schema.number().min(20).max(5000).default(500).description('表情包库上限（满了不再新增）'),
     stickerRefreshDays: Schema.number().min(1).max(90).default(14).description('每隔几天换一波表情包（按最近最少使用踢掉旧的，再去网上搜新的）'),
     stickerRefreshCount: Schema.number().min(0).max(1000).default(100).description('每次换血最多踢掉 / 补充多少张'),

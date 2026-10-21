@@ -37,6 +37,7 @@ export const DEFAULT_PULSE = {
     harvestKeywords: ['甘城猫猫表情包', '猫猫表情包', 'Claude 表情包', '熊猫头表情包', '小猫咪表情包'],
     nightly: true,
     stickerMax: 500,
+    stickerSize: 180,
     stickerRefreshDays: 14,
     stickerRefreshCount: 100,
 };
@@ -51,6 +52,7 @@ export function normalizePulse(raw) {
         botNames: arr(p.botNames, DEFAULT_PULSE.botNames),
         harvestKeywords: arr(p.harvestKeywords, DEFAULT_PULSE.harvestKeywords),
         nightly: p.nightly !== false,
+        stickerSize: Math.max(0, Math.min(1024, Math.floor(Number(p.stickerSize ?? 180)) || 0)),
         stickerMax: Math.max(20, Math.min(5000, Math.floor(Number(p.stickerMax)) || 500)),
         stickerRefreshDays: Math.max(1, Math.min(90, Math.floor(Number(p.stickerRefreshDays)) || 14)),
         stickerRefreshCount: Math.max(0, Math.min(1000, Math.floor(Number(p.stickerRefreshCount ?? 100)))),
@@ -409,7 +411,7 @@ export class GroupPulse {
                         const path = this.library.filePath(id);
                         if (!path || !existsSync(path))
                             throw new Error('表情包还没下载好');
-                        await this.sender.sendImage(target, { localPath: path });
+                        await this.sender.sendImage(target, { localPath: (await this.library.sendPath(id)) ?? path });
                         this.library.markSent(id, gid);
                         this.push(gid, { at: Date.now(), bot: true, name: '小喵', text: '', stickerIds: [id] });
                     }
@@ -629,7 +631,7 @@ ${lines.join('\n')}
         const path = this.library.filePath(sticker.id);
         if (!path)
             throw new Error('表情包文件不存在');
-        await this.sender.sendImage(target, { localPath: path });
+        await this.sender.sendImage(target, { localPath: (await this.library.sendPath(sticker.id)) ?? path });
         this.library.markSent(sticker.id, gid);
         this.group(gid).lastBotAt = Date.now();
         this.push(gid, { at: Date.now(), bot: true, name: this.pulseCfg.botNames[0] ?? '小喵', text: '', stickerIds: [sticker.id] });

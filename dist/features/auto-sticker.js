@@ -81,7 +81,7 @@ export async function finishTurn(record, logger) {
         if (!e || !lib.hasFile(e.id))
             return;
         await new Promise((r) => setTimeout(r, 600 + Math.random() * 1400));
-        await imageSender({ scope: record.replyTarget.scope, targetId: record.replyTarget.targetId, msgId: record.replyTarget.msgId }, { localPath: lib.filePath(e.id) });
+        await imageSender({ scope: record.replyTarget.scope, targetId: record.replyTarget.targetId, msgId: record.replyTarget.msgId }, { localPath: (await lib.sendPath(e.id)) ?? lib.filePath(e.id) });
         lib.markSent(e.id, gid);
         if (gid)
             getActivePulse()?.push(gid, { at: Date.now(), bot: true, name: '小喵', text: '', stickerIds: [e.id] });

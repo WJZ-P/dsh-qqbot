@@ -102,6 +102,7 @@
     "locale/*.json",
     "icon.svg",
     "skills",
+    "scripts/*.py",
     "README.md"
   ]
 }
