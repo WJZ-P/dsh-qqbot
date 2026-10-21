@@ -46,6 +46,18 @@ export async function handleInbound(ctx, manager, config, logger) {
     record.lastSenderName = msg.senderName ?? '';
     record.lastMsgId = msg.messageId;
     record.lastQuote = mwState.quote?.entry ? { senderId: mwState.quote.entry.senderId, messageId: mwState.quote.entry.messageId, name: mwState.quote.entry.senderName ?? '' } : null;
+    // 模型可用性：不可用则同组替补；同组全不可用直接报错（不跨组，避免费用差异）
+    try {
+        const chk = await manager.ensureModelUsable(record);
+        if (chk?.error) {
+            logger.warn(`im-qqbot: ${chk.error}，本条不处理: ${scope}:${peerId}`);
+            await bot.sendMarkdown(replyTarget, `⚠️ ${chk.error}，这条消息没法回复。请主人用 /model 查看并切换到其他分组的模型。`).catch(() => { });
+            return;
+        }
+    }
+    catch (err) {
+        logger.warn(`im-qqbot: 模型可用性检查失败（忽略）: ${err instanceof Error ? err.message : String(err)}`);
+    }
     // 本轮出站跟踪 + 按概率回复后自动配表情包（纯代码，不让模型多走一轮工具调用）
     beginTurn(record, rollSticker(config) ? {} : null);
     // ── 构建 UserMessage → followup ──

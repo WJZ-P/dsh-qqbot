@@ -171,6 +171,99 @@ export class ModelResolver {
         return this.settings.readModels();
     }
     /**
+     * 按分组（provider）列出当前可用模型，30 秒缓存。
+     * 每个分组 = 宿主里的一个 provider 路由（如 Our Free Model、deepseek-official）。
+     * 免费模型插件只广播探测可用的模型，所以「在列表里」≈「可用」；
+     * 本插件另外把最近调用失败的模型临时标为不可用（markBad，15 分钟）。
+     */
+    async listGrouped(force = false) {
+        if (!force && this.groupCache && Date.now() - this.groupCache.at < 30_000)
+            return this.groupCache.groups;
+        const llm = this.getLlmService();
+        const groups = [];
+        if (llm) {
+            let providers = [];
+            try {
+                providers = llm.listProviders();
+            }
+            catch { /* ignore */ }
+            for (const p of providers) {
+                const id = typeof p === 'string' ? p : p.id;
+                let label = typeof p === 'string' ? '' : (p.name ?? p.label ?? '');
+                try {
+                    const info = typeof llm.providerInfo === 'function' ? llm.providerInfo(id) : undefined;
+                    label = info?.name ?? label;
+                }
+                catch { /* ignore */ }
+                let models = [];
+                let failed = false;
+                try {
+                    models = (await llm.listModels(id)).map((m) => ({ id: m.id, name: m.name }));
+                }
+                catch {
+                    failed = true;
+                }
+                groups.push({ provider: id, label: label || id, models, failed });
+            }
+        }
+        else {
+            const byP = new Map();
+            for (const m of this.settings.readModels()) {
+                if (!byP.has(m.provider))
+                    byP.set(m.provider, { provider: m.provider, label: m.provider, models: [], failed: false });
+                byP.get(m.provider).models.push({ id: m.id, name: m.name });
+            }
+            groups.push(...byP.values());
+        }
+        this.groupCache = { at: Date.now(), groups };
+        return groups;
+    }
+    /** 某模型调用失败：在本插件内临时视为不可用 */
+    markBad(route, minutes = 15) {
+        if (!route?.provider || !route?.model)
+            return;
+        this.bad = this.bad ?? new Map();
+        this.bad.set(`${route.provider}/${route.model}`, Date.now() + minutes * 60_000);
+    }
+    clearBad(route) {
+        this.bad?.delete(`${route.provider}/${route.model}`);
+    }
+    isBad(provider, model) {
+        const until = this.bad?.get(`${provider}/${model}`);
+        return until !== undefined && until > Date.now();
+    }
+    /**
+     * 确认路由可用；不可用时只在同一分组里找替补（跨分组可能有费用差异，绝不自动跨组）。
+     * 返回 { route, fallback?, from? } 或 { error, group }
+     */
+    async pickInGroup(route) {
+        if (!route?.provider)
+            return { route };
+        let groups;
+        try {
+            groups = await this.listGrouped();
+        }
+        catch {
+            return { route }; // 查不到列表时不拦截
+        }
+        if (!groups.length)
+            return { route };
+        const g = groups.find((x) => x.provider === route.provider);
+        if (!g)
+            return { error: `模型分组「${route.provider}」不存在（插件被停用或卸载了？）`, group: route.provider };
+        if (g.failed)
+            return { route }; // 该分组列表拉取失败：不判定，照常用
+        const usable = g.models.filter((m) => !this.isBad(g.provider, m.id));
+        if (usable.some((m) => m.id === route.model))
+            return { route };
+        if (!usable.length)
+            return { error: `当前模型分组「${g.label}」里暂时没有可用模型`, group: g.label };
+        // 优先挑名字最像的（同系列），否则第一个
+        const base = String(route.model).toLowerCase().split(/[-_.:/]/)[0];
+        const alt = usable.find((m) => m.id.toLowerCase().startsWith(base)) ?? usable[0];
+        return { route: { provider: g.provider, model: alt.id }, fallback: true, from: route.model, group: g.label, name: alt.name ?? alt.id };
+    }
+    /**
      * 列出可用 provider 名称
      */
     listProviders() {

@@ -39,4 +39,5 @@ export const STICKERS_UPDATE_PATH = '/qqbot/im-qqbot/stickers/update';
 /** 群列表 + 群专属 prompt（GET 列表 / POST {groupOpenid, name?, number?, prompt?}） */
 export const GROUPS_PATH = '/qqbot/im-qqbot/groups';
 export const CAPABILITIES_PATH = '/qqbot/im-qqbot/capabilities';
+export const MODELS_PATH = '/qqbot/im-qqbot/models';
 //# sourceMappingURL=bind-protocol.js.map

@@ -10,10 +10,13 @@
  * 当前会话的重建会替换正在运行的 agent，推迟到本轮结束（whenIdle）后执行。
  */
 import { GroupDirectory } from "../features/group-directory.js";
+import { modelGroupsMarkdown } from "./model-groups-md.js";
 export const SWITCH_MODEL_TOOL_NAME = 'qqbot_switch_model';
 const DESCRIPTION = 'List, switch, or reset the LLM model for QQ conversations, at a chosen granularity. '
     + 'Use when the QQ user asks to change model (e.g. "换成 sonnet", "所有群都用 haiku", "XX群换回默认模型") or asks which models are used. '
-    + 'action=list shows available models plus the per-group / all-groups / all-private layout; action=switch takes a model name/id/alias (fuzzy matched); '
+    + 'action=list returns `markdown`: currently usable models grouped by provider group (e.g. Our Free Model, deepseek-official) plus the per-chat layout — forward that markdown as-is when asked which models exist. '
+    + 'action=switch takes a model name/id/alias (fuzzy matched among usable models); pass `group` to restrict matching to one provider group. '
+    + 'If the active model becomes unusable the plugin auto-falls back only within the same group; if that whole group is unusable it reports an error instead of crossing groups (cost). '
     + 'action=reset removes the setting at that target so it falls back (single chat → all-groups/all-private default → host default). '
     + 'target: "current" (default, this chat), "all-groups", "all-private", or a group name / group number / group openid registered via qqbot_group_directory. '
     + 'Changes keep conversation history; the current chat switches after this reply. Only the verified owner may change anything other than target=current.';
@@ -57,6 +60,7 @@ export function registerSwitchModelTool(ctx, manager, config, logger) {
             properties: {
                 action: { type: 'string', enum: ['list', 'switch', 'reset'], description: 'list | switch | reset' },
                 model: { type: 'string', description: 'For action=switch: model alias, id, or provider/id, e.g. "sonnet5.5", "claude-haiku-5-5".' },
+                group: { type: 'string', description: 'Optional provider group id or label to restrict model matching, e.g. "our-free-model".' },
                 target: { type: 'string', description: '"current" (default), "all-groups", "all-private", or a registered group name / group number / group openid.' },
             },
             required: ['action'],
@@ -76,6 +80,7 @@ export function registerSwitchModelTool(ctx, manager, config, logger) {
                     error: { type: 'string' },
                     canSwitch: { type: 'boolean' },
                     models: { type: 'array', items: { type: 'string' } },
+                    markdown: { type: 'string' },
                     layout: { type: 'array', items: { type: 'string' } },
                     candidates: { type: 'array', items: { type: 'string' } },
                 },
@@ -85,6 +90,7 @@ export function registerSwitchModelTool(ctx, manager, config, logger) {
                 const v = value;
                 const text = v.to !== undefined ? `模型切换（${v.target}）: ${v.from} → ${v.to}`
                     : v.error !== undefined ? `模型切换失败: ${v.error}`
+                        : v.markdown !== undefined ? `${v.markdown}\n\n${(v.layout ?? []).join('\n')}`
                         : v.layout !== undefined ? `当前模型: ${v.current}\n${v.layout.join('\n')}`
                             : `当前模型: ${v.current}`;
                 return [{ type: 'text', text }];
@@ -95,7 +101,10 @@ export function registerSwitchModelTool(ctx, manager, config, logger) {
             if (record === undefined)
                 throw new Error('qqbot_switch_model 只能在 QQ 会话中使用');
             const isOwner = record.lastSenderOwner === true;
-            const models = await manager.listAvailableModels();
+            const groups = await manager.listModelGroups();
+            const models = groups.flatMap((g) => g.models.filter((m) => !manager.modelResolver.isBad(g.provider, m.id)).map((m) => ({ provider: g.provider, id: m.id, name: m.name, group: g.label })));
+            if (!models.length)
+                models.push(...(await manager.listAvailableModels()));
             const show = (route) => {
                 if (!route)
                     return '（未设置）';
@@ -114,7 +123,8 @@ export function registerSwitchModelTool(ctx, manager, config, logger) {
                     ...lay.group.peers.map((p) => `群 ${GroupDirectory.label(p.peerId)}: ${show(p.route)}`),
                     ...lay.c2c.peers.map((p) => `私聊 ${p.peerId.slice(0, 8)}…: ${show(p.route)}`),
                 ];
-                return { current: currentText, models: models.map(describe), layout, canSwitch: !ownerOnly || isOwner };
+                const markdown = await modelGroupsMarkdown(manager, record.activeRoute ?? curRoute);
+                return { current: currentText, markdown, layout, canSwitch: !ownerOnly || isOwner };
             }
             if (action !== 'switch' && action !== 'reset')
                 throw new Error(`未知 action: ${String(action)}`);
@@ -159,7 +169,9 @@ export function registerSwitchModelTool(ctx, manager, config, logger) {
             }
             let route = null;
             if (action === 'switch') {
-                const hit = matchModel(models, args.model);
+                const gq = String(args.group ?? '').trim().toLowerCase();
+                const pool = gq ? models.filter((m) => m.provider.toLowerCase() === gq || String(m.group ?? '').toLowerCase().includes(gq)) : models;
+                const hit = matchModel(pool, args.model);
                 if (hit.model === undefined) {
                     return { ok: false, error: hit.error, candidates: (hit.candidates ?? models).map(describe), current: currentText };
                 }

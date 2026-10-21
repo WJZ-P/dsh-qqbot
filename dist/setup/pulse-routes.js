@@ -2,7 +2,7 @@
  * 水群 / 表情包面板路由
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH, CAPABILITIES_PATH } from "../shared/bind-protocol.js";
+import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH, CAPABILITIES_PATH, MODELS_PATH } from "../shared/bind-protocol.js";
 import { CAPABILITIES, PROACTIVE_MODES, QUIET_MAX_MIN, describeBotState, explainApiError, pluginControls } from "../features/group-admin.js";
 import { GroupDirectory, GROUP_PROMPT_MAX, MEMORY_MAX, RATE_LIMIT_MAX } from "../features/group-directory.js";
 import { rateStatus } from "../features/group-rate-limit.js";
@@ -120,6 +120,28 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
         }).sort((a, b) => Number(b.lastAt ?? 0) - Number(a.lastAt ?? 0));
     };
     const disposers = [
+        webServer.register({
+            kind: 'exact',
+            path: MODELS_PATH,
+            handler: async (req, res) => {
+                if (!guard(req, res, 'GET'))
+                    return;
+                try {
+                    const force = new URL(req.url ?? '', 'http://x').searchParams.get('refresh') === '1';
+                    const groups = await manager.listModelGroups(force);
+                    const r = manager.modelResolver;
+                    sendJson(res, 200, {
+                        ok: true,
+                        configured: config.provider && config.model ? { provider: config.provider, model: config.model } : null,
+                        hostDefault: r.resolveDefault?.() ?? null,
+                        groups: groups.map((g) => ({ ...g, models: g.models.map((m) => ({ ...m, bad: r.isBad(g.provider, m.id) })) })),
+                    });
+                }
+                catch (err) {
+                    sendJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+                }
+            },
+        }),
         webServer.register({
             kind: 'exact',
             path: CAPABILITIES_PATH,

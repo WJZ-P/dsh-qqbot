@@ -200,6 +200,44 @@ export class SessionManager {
         }
     }
     // ── 模型相关（委托给 ModelResolver） ──
+    /**
+     * 每轮开始前确认当前模型可用：不可用就在同一分组里换一个能用的（不持久化，
+     * 原模型恢复后下一轮自动换回）；同组没有可用模型时返回 { error }，由调用方报错。
+     */
+    async ensureModelUsable(record) {
+        const want = this.getEffectiveModel(record.scope, record.peerId);
+        const r = await this.modelResolver.pickInGroup(want);
+        if (r.error)
+            return r;
+        const cur = record.activeRoute ?? this.agentRoute(record) ?? want;
+        if (r.route && cur && (r.route.provider !== cur.provider || r.route.model !== cur.model)) {
+            await this.rebuildSession(record, { route: r.route });
+            this.logger.info(`im-qqbot: 模型${r.fallback ? `不可用，同组替补` : '恢复'}: ${record.sessionKey} → ${r.route.provider}/${r.route.model}`);
+            r.changed = true;
+        }
+        return r;
+    }
+    /** 运行中 agent 实际用的模型（agent.options.provider/model） */
+    agentRoute(record) {
+        try {
+            const o = record.agent?.options;
+            const prov = typeof o?.provider === 'string' ? o.provider : undefined;
+            const model = typeof o?.model === 'string' ? o.model : (typeof o?.model?.id === 'string' ? o.model.id : undefined);
+            return prov && model ? { provider: prov, model } : undefined;
+        }
+        catch {
+            return undefined;
+        }
+    }
+    async listModelGroups(force = false) {
+        return this.modelResolver.listGrouped(force);
+    }
+    markModelBad(record) {
+        const route = record.activeRoute ?? this.agentRoute(record) ?? this.getEffectiveModel(record.scope, record.peerId);
+        this.modelResolver.markBad(route);
+        return route;
+    }
+
     getEffectiveModel(scope, peerId) {
         return this.modelResolver.getEffectiveRoute(this.sessionKey(scope, peerId));
     }
@@ -329,6 +367,7 @@ export class SessionManager {
         record.agent = created.agent;
         record.handle = created;
         record.agentPreset = composed.agentPreset;
+        record.activeRoute = effectiveRoute;
         record.lastActivity = Date.now();
         void oldHandle.dispose().catch(() => { });
         this.logger.info(`session rebuilt via fork: key=${key} preset=${composed.agentPreset ?? 'none'} sessionId=${childId}`);

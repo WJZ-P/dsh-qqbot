@@ -80,8 +80,8 @@ const BUILTIN_SKILLS = [
     },
     {
         name: 'qqbot-capabilities',
-        description: 'QQ 机器人完整能力清单与群管理：官方接口（禁言/撤回/移出/黑名单/入群审批/群信息/机器人身份）+ 插件调控（每分钟回复上限、主动插话档位、安静模式），统一用 qqbot_group_admin；定时提醒/定时任务用 qqbot_reminder；主人修改总 prompt 用 qqbot_global_prompt。',
-        whenToUse: '有人问你能做什么；有人让你 N 分钟后/某时刻提醒、定时做某事；要求禁言、撤回、踢人、拉黑、审批入群；要调整本群回复频率、让你少说话/安静时；主人要修改总 prompt / 人设 / 全局规则时。',
+        description: 'QQ 机器人完整能力清单与群管理：官方接口（禁言/撤回/移出/黑名单/入群审批/群信息/机器人身份）+ 插件调控（每分钟回复上限、主动插话档位、安静模式），统一用 qqbot_group_admin；定时提醒/定时任务用 qqbot_reminder；查看分组可用模型/切换模型用 qqbot_switch_model；主人修改总 prompt 用 qqbot_global_prompt。',
+        whenToUse: '有人问你能做什么；有人让你 N 分钟后/某时刻提醒、定时做某事；要求禁言、撤回、踢人、拉黑、审批入群；要调整本群回复频率、让你少说话/安静时；主人要修改总 prompt / 人设 / 全局规则时；有人问有哪些模型、现在用的什么模型、要切换模型时。',
     },
 ];
 /**

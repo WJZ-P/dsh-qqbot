@@ -6,6 +6,8 @@ import { parseEvent, extractTurnError, } from "./events.js";
 import { getActivePulse } from "../features/group-pulse.js";
 /** 不展示给用户的轮次错误码（底层传输/网络错误，对用户无意义，且常被重试兜住） */
 const SILENT_TURN_ERROR_CODES = new Set(['STREAM_CLOSED']);
+/** 属于「这个模型现在用不了」的失败（限流、地区、下线、鉴权、上游 5xx 等），用户取消不算 */
+const MODEL_FAILURE_RE = /RATE|LIMIT|429|QUOTA|REGION|UNAVAILABLE|NOT_FOUND|404|MODEL|AUTH|401|403|OVERLOAD|5\d\d|SERVER|TRANSPORT|TIMEOUT|STREAM_CUT|unavailable|not available|rate limit|not found|does not exist/i;
 /**
  * 出站路由器：持有会话级状态，按事件类型分发到处理器
  */
@@ -114,6 +116,13 @@ class OutboundRouter {
             this.buffers.delete(sessionId);
         }
         const failure = extractTurnError(event.reason);
+        if (failure !== undefined && MODEL_FAILURE_RE.test(`${failure.code} ${failure.message}`)) {
+            try {
+                const r = this.manager.markModelBad(record);
+                this.logger.warn(`im-qqbot: 模型调用失败，15 分钟内视为不可用: ${r?.provider}/${r?.model}（${failure.code}）`);
+            }
+            catch { /* ignore */ }
+        }
         if (failure !== undefined && !SILENT_TURN_ERROR_CODES.has(failure.code)) {
             void this.send(record, `⚠️ 本轮异常结束\n\`${failure.code}\`: ${failure.message}`, 'sendTurnEndError');
         }
