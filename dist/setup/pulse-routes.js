@@ -2,7 +2,8 @@
  * 水群 / 表情包面板路由
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH } from "../shared/bind-protocol.js";
+import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH, CAPABILITIES_PATH } from "../shared/bind-protocol.js";
+import { CAPABILITIES, PROACTIVE_MODES, QUIET_MAX_MIN, describeBotState, explainApiError, pluginControls } from "../features/group-admin.js";
 import { GroupDirectory, GROUP_PROMPT_MAX, MEMORY_MAX, RATE_LIMIT_MAX } from "../features/group-directory.js";
 import { rateStatus } from "../features/group-rate-limit.js";
 import { StickerLibrary } from "../features/sticker-library.js";
@@ -44,7 +45,7 @@ function guard(req, res, method) {
     return true;
 }
 const errText = (err) => (err instanceof Error ? err.message : String(err));
-export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store = null, config = {} }) {
+export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store = null, config = {}, groupAdmin = null }) {
     const lib = StickerLibrary.shared();
     const running = new Set();
     const background = (name, fn) => {
@@ -111,6 +112,9 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                 week: days.reduce((a, b) => a + b, 0),
                 daily: days,
                 topSenders: top,
+                controls: pluginControls(e.groupOpenid, config),
+                botRole: groupAdmin?.cache?.get(`state:${e.groupOpenid}`)?.data?.member_role ?? null,
+                official: (() => { const i = groupAdmin?.cache?.get(`info:${e.groupOpenid}`)?.data; return i ? { name: i.group_name, members: i.group_member_num } : null; })(),
                 bot: pg ? { level: pg.level, activity: pg.activity, todayProactive: pg.todayCount, stats: pg.stats ?? {} } : null,
             };
         }).sort((a, b) => Number(b.lastAt ?? 0) - Number(a.lastAt ?? 0));
@@ -118,11 +122,51 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
     const disposers = [
         webServer.register({
             kind: 'exact',
+            path: CAPABILITIES_PATH,
+            handler: async (req, res) => {
+                if (!guard(req, res, 'GET'))
+                    return;
+                const gid = (new URL(req.url ?? '', 'http://x').searchParams.get('group') ?? '').trim().toUpperCase();
+                const out = { ok: true, capabilities: CAPABILITIES, permission: config.groupAdmin?.permission ?? 'owner' };
+                if (/^[0-9A-F]{32}$/.test(gid) && groupAdmin) {
+                    const probe = {};
+                    try {
+                        const s = await groupAdmin.botState(gid, true);
+                        probe.botState = { ok: true, role: s.member_role, text: describeBotState(s) };
+                    }
+                    catch (err) {
+                        probe.botState = { ok: false, error: explainApiError(err) };
+                    }
+                    try {
+                        const i = await groupAdmin.info(gid);
+                        probe.info = { ok: true, name: i.group_name, members: i.group_member_num, memo: i.group_finger_memo };
+                    }
+                    catch (err) {
+                        probe.info = { ok: false, error: explainApiError(err) };
+                    }
+                    try {
+                        await groupAdmin.muteStatus(gid);
+                        probe.mute = { ok: true };
+                    }
+                    catch (err) {
+                        probe.mute = { ok: false, error: explainApiError(err) };
+                    }
+                    out.probe = probe;
+                }
+                sendJson(res, 200, out);
+            },
+        }),
+        webServer.register({
+            kind: 'exact',
             path: GROUPS_PATH,
             handler: async (req, res) => {
                 if (req.method === 'GET') {
                     if (!guard(req, res, 'GET'))
                         return;
+                    for (const g0 of knownGroups()) {
+                        groupAdmin?.info?.(g0.groupOpenid).catch(() => { });
+                        groupAdmin?.botState?.(g0.groupOpenid).catch(() => { });
+                    }
                     const groups = knownGroups();
                     let storeInfo = null;
                     try {
@@ -186,6 +230,21 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                         return;
                     }
                     patch.rateLimit = r;
+                }
+                if (body.proactive !== undefined) {
+                    if (!PROACTIVE_MODES.includes(body.proactive)) {
+                        sendJson(res, 400, { ok: false, error: 'proactive 需为 normal / less / more / off' });
+                        return;
+                    }
+                    patch.proactive = body.proactive;
+                }
+                if (body.quietMinutes !== undefined) {
+                    const q = Number(body.quietMinutes);
+                    if (!(Number.isInteger(q) && q >= 0 && q <= QUIET_MAX_MIN)) {
+                        sendJson(res, 400, { ok: false, error: `安静时长应为 0–${QUIET_MAX_MIN} 分钟` });
+                        return;
+                    }
+                    patch.quietUntil = q === 0 ? null : Date.now() + q * 60_000;
                 }
                 if (body.memory && typeof body.memory === 'object') {
                     const m = body.memory;

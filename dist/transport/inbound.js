@@ -40,6 +40,11 @@ export async function handleInbound(ctx, manager, config, logger) {
     }
     // 本轮触发者是否为已登记主人（qqbot_switch_model 等特权工具据此授权）
     record.lastSenderOwner = mwState.owner === true;
+    // 群管工具定位「发消息的人 / 被引用的消息」用
+    record.lastSenderId = msg.senderId;
+    record.lastSenderName = msg.senderName ?? '';
+    record.lastMsgId = msg.messageId;
+    record.lastQuote = mwState.quote?.entry ? { senderId: mwState.quote.entry.senderId, messageId: mwState.quote.entry.messageId, name: mwState.quote.entry.senderName ?? '' } : null;
     // ── 构建 UserMessage → followup ──
     const content = [{ type: 'text', text: agentBody }];
     const message = createUserMessage({

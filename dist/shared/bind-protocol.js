@@ -38,4 +38,5 @@ export const STICKERS_FILE_PATH = '/qqbot/im-qqbot/stickers/file';
 export const STICKERS_UPDATE_PATH = '/qqbot/im-qqbot/stickers/update';
 /** 群列表 + 群专属 prompt（GET 列表 / POST {groupOpenid, name?, number?, prompt?}） */
 export const GROUPS_PATH = '/qqbot/im-qqbot/groups';
+export const CAPABILITIES_PATH = '/qqbot/im-qqbot/capabilities';
 //# sourceMappingURL=bind-protocol.js.map

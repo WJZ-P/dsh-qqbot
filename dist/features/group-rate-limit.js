@@ -4,7 +4,7 @@
  * 放在 mentionGate / sleepGate 之后：到这里的都是「本来要回复」的群消息。
  * 60 秒滑动窗口内超过上限 → 不进 LLM，回一句固定的可爱话（同一群一个窗口内只回一次，避免刷屏），
  * 其余超额消息静默丢弃（消息本身已被 messageRecorder 落库，不影响记录）。
- * 主人不受限。上限：群目录 rateLimit（0 = 不限）> 全局 config.groupRateLimit.perMinute。
+ * 主人不受限。上限：群目录 rateLimit（0 = 不限）> 全局 config.groupRateLimit.perMinute（默认 10）。
  */
 import { GroupDirectory } from './group-directory.js';
 const WINDOW_MS = 60_000;
@@ -24,7 +24,7 @@ export function effectiveLimit(gid, config) {
     if (typeof own === 'number')
         return own;
     const d = Number(config?.groupRateLimit?.perMinute);
-    return Number.isFinite(d) && d >= 0 ? Math.floor(d) : 15;
+    return Number.isFinite(d) && d >= 0 ? Math.floor(d) : 10;
 }
 function recordHit(gid, now) {
     const d = today();

@@ -449,6 +449,14 @@ export class GroupPulse {
             return 'disabled';
         if (this.isAsleep())
             return '睡觉中';
+        const dir = GroupDirectory.get(gid);
+        if (dir?.proactive === 'off')
+            return null; // 本群关闭主动插话：静默跳过
+        if (dir?.quietUntil && dir.quietUntil > t)
+            return null; // 安静模式
+        const mode = dir?.proactive ?? 'normal';
+        const k = mode === 'less' ? 0.5 : mode === 'more' ? 2 : 1;
+        const lim = { perHour: Math.max(1, Math.round(prm.perHour * k)), perDay: Math.max(1, Math.round(prm.perDay * k)), minGapMin: prm.minGapMin / k };
         if (this.inflight.has(gid))
             return '正在处理';
         const rec = this.manager.getSessionRecord?.('group', gid);
@@ -464,13 +472,13 @@ export class GroupPulse {
             return null;
         if (t - g.lastBotAt < 90_000)
             return '刚说过话';
-        if (t - g.lastProactiveAt < prm.minGapMin * 60_000)
-            return `冷却中（间隔 ${prm.minGapMin} 分钟）`;
+        if (t - g.lastProactiveAt < lim.minGapMin * 60_000)
+            return `冷却中（间隔 ${Math.round(lim.minGapMin)} 分钟）`;
         g.hourHits = g.hourHits.filter((x) => t - x < 3_600_000);
-        if (g.hourHits.length >= prm.perHour)
-            return `本小时已达上限 ${prm.perHour}`;
-        if (g.dayCount >= prm.perDay)
-            return `今日已达上限 ${prm.perDay}`;
+        if (g.hourHits.length >= lim.perHour)
+            return `本小时已达上限 ${lim.perHour}`;
+        if (g.dayCount >= lim.perDay)
+            return `今日已达上限 ${lim.perDay}`;
         return 'ok';
     }
     async onGap(gid) {

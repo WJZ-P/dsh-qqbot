@@ -38,8 +38,12 @@ export const PulseSchema = Schema.object({
 });
 /** 每群每分钟回复限频（各群可在面板单独覆盖） */
 export const GroupRateLimitSchema = Schema.object({
-    perMinute: Schema.number().min(0).max(600).default(15).description('每个群每分钟最多回复次数（0 = 不限；主人不受限）'),
+    perMinute: Schema.number().min(0).max(600).default(10).description('每个群每分钟最多回复次数（0 = 不限；主人不受限）'),
     replies: Schema.array(Schema.string()).default([]).description('超限时随机回的一句话（留空用内置的可爱台词）'),
+});
+/** 群管理工具权限 */
+export const GroupAdminSchema = Schema.object({
+    permission: Schema.union(['owner', 'model']).default('owner').description('群管写操作（禁言/撤回/移除/拉黑/审批/调频）：owner=仅主人触发时可用；model=机器人可按本群职责自行判断'),
 });
 export const ConfigSchema = Schema.object({
     appId: Schema.string().default('').description('QQ 机器人 AppID'),
@@ -75,6 +79,7 @@ export const ConfigSchema = Schema.object({
         nightly: true,
     }).description('水群引擎'),
     groupRateLimit: GroupRateLimitSchema.default({}),
+    groupAdmin: GroupAdminSchema.default({}),
     fullAccess: Schema.boolean().default(true).description('QQ 会话工具权限完全放开（danger-full-access + 不弹审批）；敏感操作由 prompt 规则按主人身份把关'),
     modelSwitch: Schema.union(['owner', 'anyone']).default('owner').description('谁可以在聊天中用一句话让机器人切换模型'),
     replaceHarnessPrompt: Schema.boolean().default(true).description('QQ 会话移除 DeepSeek Harness 桌面端的默认身份/界面提示词'),

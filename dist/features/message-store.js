@@ -100,6 +100,10 @@ WHERE scene = 'group' AND group_openid IS NOT NULL AND received_at >= ? GROUP BY
             groupTopSenders: db.prepare(`SELECT user_openid AS userOpenid, COUNT(*) AS count, MAX(received_at) AS lastAt,
                 json_extract(raw, '$.author.username') AS name
                 FROM messages WHERE group_openid = ? GROUP BY user_openid ORDER BY count DESC LIMIT ?`),
+            groupMembers: db.prepare(`SELECT user_openid AS userOpenid, json_extract(raw, '$.author.username') AS name, COUNT(*) AS count, MAX(received_at) AS lastAt
+                FROM messages WHERE group_openid = ? GROUP BY user_openid ORDER BY lastAt DESC LIMIT 500`),
+            recentFrom: db.prepare(`SELECT msg_id AS msgId, received_at AS receivedAt, content FROM messages
+                WHERE group_openid = ? AND user_openid = ? AND received_at >= ? ORDER BY received_at DESC LIMIT ?`),
             deleteGroup: db.prepare(`DELETE FROM messages WHERE group_openid = ?`),
             deleteC2c: db.prepare(`DELETE FROM messages WHERE scene = 'c2c' AND user_openid = ?`),
             deleteOlder: db.prepare(`DELETE FROM messages WHERE received_at < ?`),
@@ -202,6 +206,13 @@ WHERE scene = 'group' AND group_openid IS NOT NULL AND received_at >= ? GROUP BY
                 arr[i] = Number(r.count);
         }
         return out;
+    }
+    /** 本群说过话的人（昵称取最近一条消息里的） */
+    groupMembers(groupOpenid) {
+        return this.stmts.groupMembers.all(groupOpenid).map(normalizeRow);
+    }
+    recentFrom(groupOpenid, userOpenid, sinceMs, limit = 10) {
+        return this.stmts.recentFrom.all(groupOpenid, userOpenid, sinceMs, limit).map(normalizeRow);
     }
     groupTopSenders(groupOpenid, limit = 5) {
         return this.stmts.groupTopSenders.all(groupOpenid, limit).map(normalizeRow);

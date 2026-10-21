@@ -67,40 +67,56 @@ function setupMessageStore(ctx, config, logger) {
     });
     return store;
 }
+const BUILTIN_SKILLS = [
+    {
+        name: MESSAGING_SKILL_NAME,
+        description: 'QQ 机器人通道能力与消息格式：Markdown 子集、qqbot_send_file 发送图片/视频/语音/文件、读取收到的附件、群聊主动参与与 [NO_REPLY] 静默、群记忆、平台频控限制。',
+        whenToUse: '在 QQ 群聊或私聊会话中回复、需要发送图片/文件、处理用户发来的附件，或收到 [Proactive turn] 时。',
+    },
+    {
+        name: 'qqbot-capabilities',
+        description: 'QQ 机器人完整能力清单与群管理：官方接口（禁言/撤回/移出/黑名单/入群审批/群信息/机器人身份）+ 插件调控（每分钟回复上限、主动插话档位、安静模式），统一用 qqbot_group_admin。',
+        whenToUse: '有人问你能做什么；要求禁言、撤回、踢人、拉黑、审批入群；要调整本群回复频率、让你少说话/安静时。',
+    },
+];
 /**
- * 注册内置 skill「qqbot-messaging」：QQ 能力清单 + 发送格式，供 agent 按需加载。
+ * 注册内置 skills（qqbot-messaging / qqbot-capabilities），供 agent 按需加载。
  * skills 服务缺失或文件读取失败时仅告警。
  */
 function setupMessagingSkill(ctx, logger) {
-    const skillDir = fileURLToPath(new URL('../skills/qqbot-messaging/', import.meta.url));
-    const skillPath = join(skillDir, 'SKILL.md');
-    let content;
-    try {
-        content = readFileSync(skillPath, 'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
-    }
-    catch (err) {
-        logger.warn(`im-qqbot: 读取 skill 失败: ${err instanceof Error ? err.message : String(err)}`);
-        return;
+    const entries = [];
+    for (const meta of BUILTIN_SKILLS) {
+        const skillDir = fileURLToPath(new URL(`../skills/${meta.name}/`, import.meta.url));
+        const skillPath = join(skillDir, 'SKILL.md');
+        try {
+            const content = readFileSync(skillPath, 'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
+            entries.push({ ...meta, skillDir, skillPath, content });
+        }
+        catch (err) {
+            logger.warn(`im-qqbot: 读取 skill ${meta.name} 失败: ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
     ctx.inject(['skills'], (scoped) => {
         const skills = scoped.skills;
         if (typeof skills?.register !== 'function')
             return;
-        try {
-            skills.register({
-                name: MESSAGING_SKILL_NAME,
-                description: 'QQ 机器人通道能力与消息格式：Markdown 子集、qqbot_send_file 发送图片/视频/语音/文件、读取收到的附件、群聊主动参与与 [NO_REPLY] 静默、平台频控限制。',
-                whenToUse: '在 QQ 群聊或私聊会话中回复、需要发送图片/文件、处理用户发来的附件，或收到 [Proactive turn] 时。',
-                invocation: { modelInvocable: true, userInvocable: true },
-                source: 'plugin:@tencent-connect/dsh-qqbot',
-                path: skillPath,
-                resourceBase: { kind: 'directory', path: skillDir },
-                content,
-            });
-            logger.info(`im-qqbot: skill ${MESSAGING_SKILL_NAME} 已注册`);
-        }
-        catch (err) {
-            logger.warn(`im-qqbot: skill 注册失败: ${err instanceof Error ? err.message : String(err)}`);
+        for (const e of entries) {
+            try {
+                skills.register({
+                    name: e.name,
+                    description: e.description,
+                    whenToUse: e.whenToUse,
+                    invocation: { modelInvocable: true, userInvocable: true },
+                    source: 'plugin:@tencent-connect/dsh-qqbot',
+                    path: e.skillPath,
+                    resourceBase: { kind: 'directory', path: e.skillDir },
+                    content: e.content,
+                });
+                logger.info(`im-qqbot: skill ${e.name} 已注册`);
+            }
+            catch (err) {
+                logger.warn(`im-qqbot: skill ${e.name} 注册失败: ${err instanceof Error ? err.message : String(err)}`);
+            }
         }
     });
 }

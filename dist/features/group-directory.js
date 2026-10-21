@@ -6,6 +6,8 @@
  *
  * - prompt：群专属职责/人设（最长 4000 字）
  * - rateLimit：本群每分钟最多回复次数；undefined = 用全局默认，0 = 不限
+ * - proactive：主动插话档位 normal | less | more | off（缺省 normal）
+ * - quietUntil：安静模式截止时间戳（期间不主动插话，@ 仍回复）
  * - memories：群记忆 [{ id, text, at, by: 'owner'|'member'|'panel' }]，最多 MEMORY_MAX 条
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -19,6 +21,8 @@ export const GROUP_PROMPT_MAX = 4000;
 export const MEMORY_MAX = 60;
 export const MEMORY_TEXT_MAX = 300;
 export const RATE_LIMIT_MAX = 600;
+export const PROACTIVE_MODES = ['normal', 'less', 'more', 'off'];
+export const QUIET_MAX_MIN = 7 * 24 * 60;
 const maxLen = (k) => (k === 'prompt' ? GROUP_PROMPT_MAX : 200);
 function load() {
     if (cache !== null)
@@ -60,6 +64,10 @@ function sanitize(v) {
     const rate = v.rateLimit === undefined || v.rateLimit === null ? undefined : normRate(v.rateLimit);
     if (rate !== undefined)
         out.rateLimit = rate;
+    if (PROACTIVE_MODES.includes(v.proactive) && v.proactive !== 'normal')
+        out.proactive = v.proactive;
+    if (typeof v.quietUntil === 'number' && v.quietUntil > Date.now())
+        out.quietUntil = v.quietUntil;
     if (Array.isArray(v.memories)) {
         const mems = v.memories.map(sanitizeMemory).filter(Boolean).slice(-MEMORY_MAX);
         if (mems.length)
@@ -109,6 +117,19 @@ export const GroupDirectory = {
                 delete merged.rateLimit;
             else
                 merged.rateLimit = r;
+        }
+        if (patch.proactive !== undefined) {
+            if (patch.proactive === null || patch.proactive === 'normal' || !PROACTIVE_MODES.includes(patch.proactive))
+                delete merged.proactive;
+            else
+                merged.proactive = patch.proactive;
+        }
+        if (patch.quietUntil !== undefined) {
+            const q = Number(patch.quietUntil);
+            if (patch.quietUntil === null || !Number.isFinite(q) || q <= Date.now())
+                delete merged.quietUntil;
+            else
+                merged.quietUntil = Math.min(q, Date.now() + QUIET_MAX_MIN * 60_000);
         }
         save();
         return merged;
