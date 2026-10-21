@@ -278,6 +278,10 @@ export class ModelResolver {
         const usable = g.models.filter((m) => !this.isBad(g.provider, m.id));
         if (usable.some((m) => m.id === route.model))
             return { route };
+        // 需要额外授权的通道（EAC 等）不作为自动替补
+        const autoOk = usable.filter((m) => !/^EAC\b/i.test(m.name ?? ''));
+        usable.length = 0;
+        usable.push(...autoOk);
         if (!usable.length)
             return { error: `当前模型分组「${g.label}」里暂时没有可用模型`, group: g.label };
         // 优先挑名字最像的（同系列），否则第一个

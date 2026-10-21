@@ -217,7 +217,16 @@ export class SessionManager {
             return r;
         const cur = record.activeRoute ?? this.agentRoute(record) ?? want;
         if (r.route && cur && (r.route.provider !== cur.provider || r.route.model !== cur.model)) {
-            await this.rebuildSession(record, { route: r.route });
+            try {
+                await this.rebuildSession(record, { route: r.route });
+            }
+            catch (err) {
+                this.logger.warn(`im-qqbot: 切模型重建失败，丢弃旧会话: ${record.sessionKey} ${err instanceof Error ? err.message : String(err)}`);
+                this.sessions.delete(record.sessionKey);
+                try { record.agent.cancel({ kind: 'user' }); } catch { /* ignore */ }
+                await record.handle.dispose().catch(() => { });
+                return { ...r, recreate: true };
+            }
             this.logger.info(`im-qqbot: 模型${r.fallback ? `不可用，同组替补` : '恢复'}: ${record.sessionKey} → ${r.route.provider}/${r.route.model}`);
             r.changed = true;
         }
@@ -343,6 +352,8 @@ export class SessionManager {
         let seed;
         try {
             seed = sessionsService.fork(record.agent.session).events;
+            if (!Array.isArray(seed))
+                throw new Error('fork 没有返回事件');
         }
         catch (err) {
             this.logger.warn(`fork failed, fallback to dispose: key=${key} err=${err instanceof Error ? err.message : String(err)}`);
@@ -418,6 +429,10 @@ export class SessionManager {
             }
             catch (err) {
                 this.logger.warn(`scope model rebuild failed: key=${record.sessionKey} err=${err instanceof Error ? err.message : String(err)}`);
+                // 重建失败：丢弃旧会话，下条消息按新模型重新建立
+                this.sessions.delete(record.sessionKey);
+                try { record.agent.cancel({ kind: 'user' }); } catch { /* ignore */ }
+                await record.handle.dispose().catch(() => { });
             }
         }
         this.logger.info(`scope model ${scope} → ${route ? `${route.provider}/${route.model}` : '(cleared)'}; cleared ${cleared} peer overrides, rebuilt ${rebuilt}`);
@@ -562,6 +577,7 @@ export class SessionManager {
         let agent;
         let handle;
         let agentPreset;
+        let usedRoute;
         const live = this.agents.get(sessionId);
         if (live) {
             agent = live;
@@ -582,6 +598,7 @@ export class SessionManager {
                 });
                 agent = resumed.agent;
                 handle = resumed;
+                usedRoute = resumeRoute;
                 this.logger.info(`resumed session: key=${key} preset=${agentPreset ?? 'none'} route=${resumeRoute ? `${resumeRoute.provider}/${resumeRoute.model}` : 'session-own'}`);
             }
             catch {
@@ -596,6 +613,7 @@ export class SessionManager {
                 });
                 agent = created.agent;
                 handle = created;
+                usedRoute = route;
                 this.logger.info(`created new session: key=${key} preset=${agentPreset ?? 'none'}`);
             }
         }
@@ -611,6 +629,7 @@ export class SessionManager {
             senderId,
             lastActivity: Date.now(),
             agentPreset,
+            ...(usedRoute ? { activeRoute: usedRoute } : {}),
         };
         this.sessions.set(key, record);
         return record;
