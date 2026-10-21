@@ -31,6 +31,7 @@ export const PulseSchema = Schema.object({
     enabled: Schema.boolean().default(true).description('启用水群引擎（聊天间隙判断插话 / 表情包 / 复读；替代关键词 + 随机冷却）'),
     judgeModel: Schema.string().default('').description('判断/打标签用的便宜模型（provider/model 或模型 id），留空自动选 haiku/flash'),
     stickers: Schema.boolean().default(true).description('收集群友表情包并在水群时使用'),
+    stickerChance: Schema.number().min(0).max(1).default(0.2).description('每次回复后额外发一张表情包的概率（0–1，默认 0.2；表情包单独一条消息）'),
     repeat: Schema.boolean().default(true).description('偶尔跟着复读（2 人以上连续发同一表情包/短句）'),
     botNames: Schema.array(Schema.string()).default(['小喵']).description('机器人的称呼（群友提到时算作互动）'),
     harvestKeywords: Schema.array(Schema.string()).default(['甘城猫猫表情包', '猫猫表情包', 'Claude 表情包', '熊猫头表情包', '小猫咪表情包']).description('夜间网上搜集表情包的关键词'),

@@ -94,7 +94,7 @@ export class SessionManager {
                     + '- 你的纯文本回复会以 QQ Markdown 自动发回当前 QQ 会话。\n'
                     + '- 有人问你能做什么、要求禁言/撤回/踢人/审批入群、或要调整本群回复频率/让你安静时，先加载 `qqbot-capabilities` skill，再用 qqbot_group_admin（群管写操作默认只听主人的；谁让你安静都可以照做）。\n'
                     + '- 发送图片/文件、处理收到的附件、或收到 [Proactive turn] 时，先加载 `qqbot-messaging` skill；[Proactive turn] 无话可说时只输出 `[NO_REPLY]`。\n'
-                    + '- 可以用 qqbot_sticker 偶尔发群友/网上收集的表情包（按情绪挑），别自己画表情包。\n'
+                    + '- 别光发字：聊天时适当用 qqbot_sticker 发表情包（按情绪挑，单独一条消息），像真人群友一样图文穿插；消息里出现「本轮掷到了表情包」时必须补发一张。别自己画表情包。\n'
                     + `- grep/glob 基于 ripgrep，只能搜真实存在的目录：QQ 插件代码在 ${PLUGIN_ROOT} 的 dist/、lib/、skills/（没有 src/）；DSH 自身代码打包在 app.asar 里，grep/glob 读不到，别对它搜。路径不确定时先 glob 或列目录。\n`
                     + '- 联网搜索用 qqbot_web_search（内置 web_search 在 QQ 会话里没有 DeepSeek 凭据，会报 credential missing，不要用）；需要读网页全文再用 web_fetch。\n'
                     + '- 分条发送：真人闲聊时常把一段话拆成几条短消息连着发。闲聊、接梗、吐槽、情绪反应时，可以在想分开的地方单独一行写 `[SPLIT]`，'
