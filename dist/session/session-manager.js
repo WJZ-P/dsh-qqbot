@@ -353,54 +353,35 @@ export class SessionManager {
      * fork 不可用或失败时降级为 dispose（下次消息重建）。
      */
     async rebuildSession(record, options) {
+        // 宿主 sessions.fork() 现在会自己注册子会话并返回 Session（不再返回 { events }），
+        // 旧的 fork+seed 方案必然失败并把会话丢掉。改为：释放当前 agent → 用新模型 resume 同一个 sessionId，
+        // 历史就在持久化的会话里，原样保留。
         const key = record.sessionKey;
-        const sessionsService = this.getSessionsService();
-        if (!sessionsService) {
-            this.logger.warn(`fork unavailable, fallback to dispose: key=${key}`);
-            this.sessions.delete(key);
-            record.agent.cancel({ kind: 'user' });
-            await record.handle.dispose().catch(() => { });
-            return;
-        }
-        let seed;
+        const effectiveRoute = options.route ?? this.modelResolver.getEffectiveRoute(key);
+        const presetId = record.agentPreset ?? (await this.resolvePersistedPreset(record.sessionId)) ?? this.getEffectivePresetByKey(key);
+        const composed = await this.composePreset(presetId);
+        try { record.agent.cancel({ kind: 'user' }); } catch { /* ignore */ }
+        await record.handle.dispose().catch(() => { });
+        let resumed;
         try {
-            seed = sessionsService.fork(record.agent.session).events;
-            if (!Array.isArray(seed))
-                throw new Error('fork 没有返回事件');
+            resumed = await this.agents.resume({
+                resumeSessionId: SessionId(record.sessionId),
+                ...(effectiveRoute ? { agentOptions: effectiveRoute } : {}),
+                ...(composed.setup ? { setup: composed.setup } : {}),
+            });
         }
         catch (err) {
-            this.logger.warn(`fork failed, fallback to dispose: key=${key} err=${err instanceof Error ? err.message : String(err)}`);
+            // 旧 agent 已释放，记录不能再用：移除，下条消息重新建立
             this.sessions.delete(key);
-            record.agent.cancel({ kind: 'user' });
-            await record.handle.dispose().catch(() => { });
-            return;
+            throw new Error(`切换模型时恢复会话失败: ${err instanceof Error ? err.message : String(err)}`);
         }
-        const childId = SessionId(randomUUID());
-        const effectiveRoute = options.route ?? this.modelResolver.getEffectiveRoute(key);
-        const composed = await this.composePreset(this.getEffectivePresetByKey(key));
-        const created = await this.agents.create({
-            sessionId: childId,
-            seed,
-            meta: {
-                cwd: this.config.cwd || process.cwd(),
-                parentSession: record.sessionId,
-                seedLength: seed.length,
-                ...(composed.agentPreset ? { agentPreset: composed.agentPreset } : {}),
-            },
-            ...(effectiveRoute ? { agentOptions: effectiveRoute } : {}),
-            ...(composed.setup ? { setup: composed.setup } : {}),
-        });
-        this.modelResolver.setSessionId(key, childId);
-        this.applyFullAccess(created.agent, key);
-        const oldHandle = record.handle;
-        record.sessionId = childId;
-        record.agent = created.agent;
-        record.handle = created;
+        this.applyFullAccess(resumed.agent, key);
+        record.agent = resumed.agent;
+        record.handle = resumed;
         record.agentPreset = composed.agentPreset;
         record.activeRoute = effectiveRoute;
         record.lastActivity = Date.now();
-        void oldHandle.dispose().catch(() => { });
-        this.logger.info(`session rebuilt via fork: key=${key} preset=${composed.agentPreset ?? 'none'} sessionId=${childId}`);
+        this.logger.info(`session rebuilt via resume: key=${key} route=${effectiveRoute ? `${effectiveRoute.provider}/${effectiveRoute.model}` : 'default'} sessionId=${record.sessionId}`);
     }
     /** 恢复默认模型（config 指定 > settings.yaml > 宿主默认），保留对话历史 */
     async resetModelOverride(scope, peerId) {
@@ -576,7 +557,7 @@ export class SessionManager {
         }
     }
     /** 获取或恢复或创建会话（get → resume → create） */
-    async getOrCreate(scope, peerId, senderId, replyTarget) {
+    async getOrCreate(scope, peerId, senderId, replyTarget, routeOverride) {
         const key = this.sessionKey(scope, peerId);
         const existing = this.sessions.get(key);
         if (existing) {
@@ -584,7 +565,7 @@ export class SessionManager {
             existing.lastActivity = Date.now();
             return existing;
         }
-        const route = this.modelResolver.getEffectiveRoute(key);
+        const route = routeOverride ?? this.modelResolver.getEffectiveRoute(key);
         const sessionId = SessionId(this.currentSessionId(key));
         this.logger.info(`getOrCreate: key=${key} route=${route ? `${route.provider}/${route.model}` : 'host-default'} sessionId=${sessionId}`);
         let agent;
@@ -603,7 +584,7 @@ export class SessionManager {
             const composed = await this.composePreset(presetId);
             agentPreset = composed.agentPreset;
             try {
-                const resumeRoute = this.modelResolver.getResumeRoute(key);
+                const resumeRoute = routeOverride ?? this.modelResolver.getResumeRoute(key);
                 const resumed = await this.agents.resume({
                     resumeSessionId: sessionId,
                     ...(resumeRoute ? { agentOptions: resumeRoute } : {}),

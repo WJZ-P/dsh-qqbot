@@ -41,13 +41,16 @@ export async function handleInbound(ctx, manager, config, logger) {
         }
         return;
     }
-    // 本轮触发者是否为已登记主人（qqbot_switch_model 等特权工具据此授权）
-    record.lastSenderOwner = mwState.owner === true || mwState.batchHasOwner === true;
-    // 群管工具定位「发消息的人 / 被引用的消息」用
-    record.lastSenderId = msg.senderId;
-    record.lastSenderName = msg.senderName ?? '';
-    record.lastMsgId = msg.messageId;
-    record.lastQuote = mwState.quote?.entry ? { senderId: mwState.quote.entry.senderId, messageId: mwState.quote.entry.messageId, name: mwState.quote.entry.senderName ?? '' } : null;
+    const stamp = (r) => {
+        // 本轮触发者是否为已登记主人（qqbot_switch_model 等特权工具据此授权）
+        r.lastSenderOwner = mwState.owner === true || mwState.batchHasOwner === true;
+        // 群管工具定位「发消息的人 / 被引用的消息」用
+        r.lastSenderId = msg.senderId;
+        r.lastSenderName = msg.senderName ?? '';
+        r.lastMsgId = msg.messageId;
+        r.lastQuote = mwState.quote?.entry ? { senderId: mwState.quote.entry.senderId, messageId: mwState.quote.entry.messageId, name: mwState.quote.entry.senderName ?? '' } : null;
+    };
+    stamp(record);
     // 模型可用性：不可用则同组替补；同组全不可用直接报错（不跨组，避免费用差异）
     try {
         const chk = await manager.ensureModelUsable(record);
@@ -56,9 +59,27 @@ export async function handleInbound(ctx, manager, config, logger) {
             await bot.sendMarkdown(replyTarget, `⚠️ ${chk.error}，这条消息没法回复。请主人用 /model 查看并切换到其他分组的模型。`).catch(() => { });
             return;
         }
+        if (chk?.recreate) {
+            // 旧会话已释放：按替补模型重新建立，否则这条消息会发给已销毁的 agent，石沉大海
+            record = await manager.getOrCreate(scope, peerId, msg.senderId, replyTarget, chk.route);
+            record.activeRoute = chk.route ?? record.activeRoute;
+            stamp(record);
+            logger.info(`im-qqbot: 会话已按 ${chk.route ? `${chk.route.provider}/${chk.route.model}` : '默认模型'} 重新建立: ${scope}:${peerId}`);
+        }
     }
     catch (err) {
         logger.warn(`im-qqbot: 模型可用性检查失败（忽略）: ${err instanceof Error ? err.message : String(err)}`);
+        if (!manager.sessions.has(record.sessionKey)) {
+            try {
+                record = await manager.getOrCreate(scope, peerId, msg.senderId, replyTarget);
+                stamp(record);
+            }
+            catch (e2) {
+                logger.error(`ERROR recreating session: ${e2 instanceof Error ? e2.message : String(e2)}`);
+                await bot.sendMarkdown(replyTarget, '⚠️ 处理消息时出现异常，请稍后重试。').catch(() => { });
+                return;
+            }
+        }
     }
     // 本轮出站跟踪 + 按概率回复后自动配表情包（纯代码，不让模型多走一轮工具调用）
     beginTurn(record, rollSticker(config) ? {} : null);
@@ -68,6 +89,8 @@ export async function handleInbound(ctx, manager, config, logger) {
         content,
         source: { kind: 'user' },
     });
+    record.retryArmed = true;
+    record.retryAfterFailure = undefined;
     record.agent.followup(message);
     logger.info(`→ followup sent: key=${scope}:${peerId}`);
     // 群消息回复后清空历史缓存（避免下次 @ 时重复组包）
@@ -78,6 +101,47 @@ export async function handleInbound(ctx, manager, config, logger) {
     record.busy = true;
     try {
         await record.agent.whenIdle();
+        record.retryArmed = false;
+        // 模型限流 / 不可用且还没回出任何内容：换同组替补模型重答一次
+        const failure = record.retryAfterFailure;
+        if (failure !== undefined) {
+            record.retryAfterFailure = undefined;
+            const report = () => bot.sendMarkdown(replyTarget, `⚠️ 本轮异常结束\n\`${failure.code}\`: ${failure.message}`).catch(() => { });
+            const before = record.activeRoute ?? manager.agentRoute(record);
+            let chk;
+            try {
+                chk = await manager.ensureModelUsable(record);
+            }
+            catch (err) {
+                logger.warn(`im-qqbot: 重试前切换替补模型失败: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            if (chk?.recreate) {
+                record = await manager.getOrCreate(scope, peerId, msg.senderId, replyTarget, chk.route);
+                record.activeRoute = chk.route ?? record.activeRoute;
+                stamp(record);
+            }
+            const after = record.activeRoute ?? manager.agentRoute(record);
+            const switched = !chk?.error && manager.sessions.has(record.sessionKey)
+                && after && (!before || after.provider !== before.provider || after.model !== before.model);
+            if (!switched) {
+                if (chk?.error)
+                    await bot.sendMarkdown(replyTarget, `⚠️ ${failure.message}，${chk.error}，稍后再试吧。`).catch(() => { });
+                else
+                    await report();
+                return;
+            }
+            logger.info(`im-qqbot: ${failure.code}，换 ${after.provider}/${after.model} 重答: ${scope}:${peerId}`);
+            beginTurn(record, rollSticker(config) ? {} : null);
+            record.agent.followup(createUserMessage({
+                content: [{ type: 'text', text: '[System note] 上一轮因模型限流 / 不可用没能回复，已换模型。请直接回复上面最后一条用户消息，不要提及这次故障。' }],
+                source: { kind: 'user' },
+            }));
+            await record.agent.whenIdle();
+            if (record.retryAfterFailure !== undefined) {
+                record.retryAfterFailure = undefined;
+                await report();
+            }
+        }
     }
     catch (err) {
         logger.warn(`whenIdle rejected: ${err instanceof Error ? err.message : String(err)}`);

@@ -108,6 +108,7 @@ class OutboundRouter {
     /** 轮次结束：清理 buffer，异常结束时告知用户 */
     onTurnEnd(sessionId, record, event) {
         const buffer = this.buffers.get(sessionId);
+        const hadOutput = Boolean(buffer?.text?.trim()) || Boolean(record.turnOut?.text?.trim());
         if (buffer !== undefined) {
             if (buffer.text.trim()) {
                 this.track(record, buffer.flush());
@@ -120,14 +121,21 @@ class OutboundRouter {
         const failure = extractTurnError(event.reason);
         if (failure !== undefined)
             opsLog('turn-error', { session: record.sessionKey, code: failure.code, error: failure.message });
+        let retrying = false;
         if (failure !== undefined && MODEL_FAILURE_RE.test(`${failure.code} ${failure.message}`)) {
             try {
                 const r = this.manager.markModelBad(record);
                 this.logger.warn(`im-qqbot: 模型调用失败，15 分钟内视为不可用: ${r?.provider}/${r?.model}（${failure.code}）`);
             }
             catch { /* ignore */ }
+            // 还没发出任何内容、且本条消息还没重试过：交给 inbound 换同组替补模型重答一次，先不报错
+            if (!hadOutput && record.retryArmed === true) {
+                record.retryArmed = false;
+                record.retryAfterFailure = failure;
+                retrying = true;
+            }
         }
-        if (failure !== undefined && !SILENT_TURN_ERROR_CODES.has(failure.code)) {
+        if (failure !== undefined && !retrying && !SILENT_TURN_ERROR_CODES.has(failure.code)) {
             void this.send(record, `⚠️ 本轮异常结束\n\`${failure.code}\`: ${failure.message}`, 'sendTurnEndError');
         }
         void finishTurn(record, this.logger);
