@@ -149,6 +149,8 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 
 ## 核心模块
 
+> **本 fork 只有编译产物**：仓库里没有 `src/`，下面的 `.ts` 结构是上游源码布局，对应文件在 `dist/` 下同名 `.js`（如 `src/gateway/bootstrap.ts` → `dist/gateway/bootstrap.js`），直接改 `dist/` 即可；面板代码在 `lib/client.js`。
+
 ```
 src/
 ├── index.ts                    # Cordis 插件入口（async apply）
