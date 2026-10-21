@@ -36,6 +36,11 @@ export const PulseSchema = Schema.object({
     harvestKeywords: Schema.array(Schema.string()).default(['甘城猫猫表情包', '猫猫表情包', 'Claude 表情包', '熊猫头表情包', '小猫咪表情包']).description('夜间网上搜集表情包的关键词'),
     nightly: Schema.boolean().default(true).description('睡眠时段内每天一次：生成群档案 + 网上搜集表情包'),
 });
+/** 每群每分钟回复限频（各群可在面板单独覆盖） */
+export const GroupRateLimitSchema = Schema.object({
+    perMinute: Schema.number().min(0).max(600).default(15).description('每个群每分钟最多回复次数（0 = 不限；主人不受限）'),
+    replies: Schema.array(Schema.string()).default([]).description('超限时随机回的一句话（留空用内置的可爱台词）'),
+});
 export const ConfigSchema = Schema.object({
     appId: Schema.string().default('').description('QQ 机器人 AppID'),
     appSecret: Schema.string().default('').description('QQ 机器人 AppSecret'),
@@ -69,6 +74,7 @@ export const ConfigSchema = Schema.object({
         harvestKeywords: ['甘城猫猫表情包', '猫猫表情包', 'Claude 表情包', '熊猫头表情包', '小猫咪表情包'],
         nightly: true,
     }).description('水群引擎'),
+    groupRateLimit: GroupRateLimitSchema.default({}),
     fullAccess: Schema.boolean().default(true).description('QQ 会话工具权限完全放开（danger-full-access + 不弹审批）；敏感操作由 prompt 规则按主人身份把关'),
     modelSwitch: Schema.union(['owner', 'anyone']).default('owner').description('谁可以在聊天中用一句话让机器人切换模型'),
     replaceHarnessPrompt: Schema.boolean().default(true).description('QQ 会话移除 DeepSeek Harness 桌面端的默认身份/界面提示词'),

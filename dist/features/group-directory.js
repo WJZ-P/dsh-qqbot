@@ -1,16 +1,24 @@
 /**
- * 群目录 — group_openid → { name, number, note, prompt } 的 KV 记录（prompt = 群专属职责/人设，最长 4000 字）。
+ * 群目录 — group_openid → { name, number, note, prompt, rateLimit, memories } 的 KV 记录。
  *
  * QQ 官方机器人 API 不下发群名和群号，只给 group_openid；由主人在聊天中告诉机器人
- * （qqbot_group_directory 工具）或在面板中录入。存储：~/.dsh-qqbot/group-directory.json
+ * （qqbot_group_directory 工具）或在面板「群聊管理」中录入。存储：~/.dsh-qqbot/group-directory.json
+ *
+ * - prompt：群专属职责/人设（最长 4000 字）
+ * - rateLimit：本群每分钟最多回复次数；undefined = 用全局默认，0 = 不限
+ * - memories：群记忆 [{ id, text, at, by: 'owner'|'member'|'panel' }]，最多 MEMORY_MAX 条
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 const PATH = resolve(homedir(), '.dsh-qqbot', 'group-directory.json');
 let cache = null;
 const FIELDS = ['name', 'number', 'note', 'prompt'];
 export const GROUP_PROMPT_MAX = 4000;
+export const MEMORY_MAX = 60;
+export const MEMORY_TEXT_MAX = 300;
+export const RATE_LIMIT_MAX = 600;
 const maxLen = (k) => (k === 'prompt' ? GROUP_PROMPT_MAX : 200);
 function load() {
     if (cache !== null)
@@ -28,12 +36,34 @@ function load() {
     catch { /* 损坏文件按空处理 */ }
     return cache;
 }
+function sanitizeMemory(m) {
+    if (!m || typeof m !== 'object' || typeof m.text !== 'string' || !m.text.trim())
+        return null;
+    return {
+        id: typeof m.id === 'string' && m.id ? m.id : randomUUID().slice(0, 8),
+        text: m.text.trim().slice(0, MEMORY_TEXT_MAX),
+        at: typeof m.at === 'number' ? m.at : Date.now(),
+        by: m.by === 'owner' || m.by === 'panel' ? m.by : 'member',
+    };
+}
+function normRate(v) {
+    const n = Math.floor(Number(v));
+    return Number.isFinite(n) && n >= 0 ? Math.min(RATE_LIMIT_MAX, n) : undefined;
+}
 function sanitize(v) {
     const out = {};
     for (const k of FIELDS) {
         const s = typeof v[k] === 'string' || typeof v[k] === 'number' ? String(v[k]).trim().slice(0, maxLen(k)) : '';
         if (s)
             out[k] = s;
+    }
+    const rate = v.rateLimit === undefined || v.rateLimit === null ? undefined : normRate(v.rateLimit);
+    if (rate !== undefined)
+        out.rateLimit = rate;
+    if (Array.isArray(v.memories)) {
+        const mems = v.memories.map(sanitizeMemory).filter(Boolean).slice(-MEMORY_MAX);
+        if (mems.length)
+            out.memories = mems;
     }
     if (typeof v.updatedAt === 'number')
         out.updatedAt = v.updatedAt;
@@ -46,6 +76,13 @@ function save() {
     }
     catch { /* 写失败不影响机器人 */ }
 }
+function touch(openid) {
+    const map = load();
+    const entry = { ...(map.get(openid) ?? {}) };
+    entry.updatedAt = Date.now();
+    map.set(openid, entry);
+    return entry;
+}
 export const GroupDirectory = {
     path: PATH,
     get(openid) {
@@ -54,10 +91,9 @@ export const GroupDirectory = {
     list() {
         return [...load().entries()].map(([openid, v]) => ({ openid, ...v }));
     },
-    /** 合并更新；字段传空字符串表示删除该字段 */
+    /** 合并更新；字段传空字符串表示删除该字段；rateLimit 传 null 表示恢复默认 */
     set(openid, patch) {
-        const map = load();
-        const merged = { ...(map.get(openid) ?? {}) };
+        const merged = touch(openid);
         for (const k of FIELDS) {
             if (patch[k] === undefined)
                 continue;
@@ -67,8 +103,13 @@ export const GroupDirectory = {
             else
                 delete merged[k];
         }
-        merged.updatedAt = Date.now();
-        map.set(openid, merged);
+        if (patch.rateLimit !== undefined) {
+            const r = patch.rateLimit === null || patch.rateLimit === '' ? undefined : normRate(patch.rateLimit);
+            if (r === undefined)
+                delete merged.rateLimit;
+            else
+                merged.rateLimit = r;
+        }
         save();
         return merged;
     },
@@ -77,6 +118,63 @@ export const GroupDirectory = {
         if (ok)
             save();
         return ok;
+    },
+    /** 群记忆：新增（与已有内容完全相同则不重复） */
+    addMemory(openid, text, by = 'member') {
+        const mem = sanitizeMemory({ text, by });
+        if (!mem)
+            return { error: '记忆内容不能为空' };
+        const entry = touch(openid);
+        const list = [...(entry.memories ?? [])];
+        const dup = list.find((m) => m.text === mem.text);
+        if (dup)
+            return { memory: dup, duplicate: true };
+        list.push(mem);
+        const dropped = list.length > MEMORY_MAX ? list.splice(0, list.length - MEMORY_MAX) : [];
+        entry.memories = list;
+        save();
+        return { memory: mem, dropped: dropped.length };
+    },
+    /** 群记忆：修改文字 */
+    updateMemory(openid, id, text) {
+        const entry = load().get(openid);
+        const m = entry?.memories?.find((x) => x.id === id);
+        if (!m)
+            return { error: `没有 id 为 ${id} 的记忆` };
+        const t = String(text ?? '').trim().slice(0, MEMORY_TEXT_MAX);
+        if (!t)
+            return { error: '记忆内容不能为空' };
+        m.text = t;
+        m.at = Date.now();
+        entry.updatedAt = Date.now();
+        save();
+        return { memory: m };
+    },
+    removeMemory(openid, id) {
+        const entry = load().get(openid);
+        const list = entry?.memories ?? [];
+        const idx = list.findIndex((m) => m.id === id);
+        if (idx < 0)
+            return { error: `没有 id 为 ${id} 的记忆` };
+        const [removed] = list.splice(idx, 1);
+        if (list.length === 0)
+            delete entry.memories;
+        entry.updatedAt = Date.now();
+        save();
+        return { memory: removed };
+    },
+    clearMemories(openid) {
+        const entry = load().get(openid);
+        const n = entry?.memories?.length ?? 0;
+        if (entry && n) {
+            delete entry.memories;
+            entry.updatedAt = Date.now();
+            save();
+        }
+        return n;
+    },
+    memories(openid) {
+        return load().get(openid)?.memories ?? [];
     },
     /** 按 openid / 群号 / 群名（精确优先，其次唯一子串）查找 */
     resolve(query) {
@@ -96,9 +194,9 @@ export const GroupDirectory = {
     },
     label(openid) {
         const g = load().get(openid);
-        if (!g)
+        if (!g || (!g.name && !g.number))
             return `未登记群(${openid.slice(0, 8)}…)`;
-        return [g.name, g.number ? `群号 ${g.number}` : ''].filter(Boolean).join(' · ') || `群(${openid.slice(0, 8)}…)`;
+        return [g.name, g.number ? `群号 ${g.number}` : ''].filter(Boolean).join(' · ');
     },
 };
 //# sourceMappingURL=group-directory.js.map

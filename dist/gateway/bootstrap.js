@@ -20,6 +20,7 @@ import { GroupPulse } from "../features/group-pulse.js";
 import { GroupProfiles, PulseMaintenance } from "../features/pulse-maintenance.js";
 import { registerStickerTool } from "../features/sticker-tool.js";
 import { registerWebSearchTool } from "../features/web-search-tool.js";
+import { registerGroupMemoryTool } from "../features/group-memory-tool.js";
 import { registerPulseRoutes } from "../setup/pulse-routes.js";
 /**
  * interaction 统一分发器：按 button_data 的顶层 `t` 判别字段，路由到对应
@@ -172,6 +173,12 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     pulseSender.sendImage = (target, source) => mediaSender.sendImage(target, source);
     registerStickerTool(ctx, manager, mediaSender, config, logger);
     try {
+        registerGroupMemoryTool(ctx, manager, logger);
+    }
+    catch (err) {
+        logger.warn(`im-qqbot: qqbot_group_memory 注册失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
         registerWebSearchTool(ctx, logger);
     }
     catch (err) {
@@ -186,7 +193,7 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
         const webServer = scoped.webServer;
         if (typeof webServer?.register !== 'function')
             return;
-        const dispose = registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store: messageStore });
+        const dispose = registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store: messageStore, config });
         scoped.effect(() => dispose, 'im-qqbot.pulse-routes');
     });
     // ── 生命周期 ──

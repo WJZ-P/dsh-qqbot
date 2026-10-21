@@ -1,4 +1,5 @@
 import { errorHandler, messageFilter, accessPolicy, mentionGate, contentSanitizer, rateLimiter, slashCommand, concurrencyGuard, typingIndicator, quoteRef, historyBuffer, envelopeFormatter, } from '@tencent-connect/qqbot-nodejs';
+import { groupRateLimiter } from '../features/group-rate-limit.js';
 import { buildCommandList } from "../commands/index.js";
 import { attachmentProcessor } from "../middleware/attachment.js";
 import { questionAnswer } from "../middleware/question-answer.js";
@@ -104,6 +105,8 @@ export function setupMiddlewares(bot, config, manager, logger, messageStore = nu
         }
         await next();
     });
+    // 6.8. 每群每分钟回复限频（超限回固定可爱台词，不进 LLM）
+    bot.use(groupRateLimiter(config, bot, logger));
     // 7. 三层限流（sender / group / global）
     bot.use(rateLimiter());
     // 8. 斜杠命令（在 concurrencyGuard 之前，命令匹配后不排队直接响应）

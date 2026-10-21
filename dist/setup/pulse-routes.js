@@ -3,7 +3,8 @@
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { PULSE_ACTION_PATH, PULSE_STATUS_PATH, STICKERS_FILE_PATH, STICKERS_LIST_PATH, STICKERS_UPDATE_PATH, GROUPS_PATH } from "../shared/bind-protocol.js";
-import { GroupDirectory, GROUP_PROMPT_MAX } from "../features/group-directory.js";
+import { GroupDirectory, GROUP_PROMPT_MAX, MEMORY_MAX, RATE_LIMIT_MAX } from "../features/group-directory.js";
+import { rateStatus } from "../features/group-rate-limit.js";
 import { StickerLibrary } from "../features/sticker-library.js";
 function trusted(req) {
     const origin = req.headers.origin;
@@ -43,7 +44,7 @@ function guard(req, res, method) {
     return true;
 }
 const errText = (err) => (err instanceof Error ? err.message : String(err));
-export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store = null }) {
+export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store = null, config = {} }) {
     const lib = StickerLibrary.shared();
     const running = new Set();
     const background = (name, fn) => {
@@ -80,10 +81,39 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
             }
         }
         catch { /* ignore */ }
+        let daily = {};
+        try {
+            daily = store?.groupDailyCounts?.(7) ?? {};
+        }
+        catch { /* ignore */ }
+        let pulseGroups = new Map();
+        try {
+            pulseGroups = new Map((pulse?.status?.().groups ?? []).map((g) => [g.groupOpenid, g]));
+        }
+        catch { /* ignore */ }
         return [...map.values()].map((e) => {
             const d = GroupDirectory.get(e.groupOpenid) ?? {};
-            return { ...e, name: d.name ?? '', number: d.number ?? '', note: d.note ?? '', prompt: d.prompt ?? '', label: GroupDirectory.label(e.groupOpenid) };
-        }).sort((a, b) => (b.prompt ? 1 : 0) - (a.prompt ? 1 : 0) || String(b.lastAt ?? '').localeCompare(String(a.lastAt ?? '')));
+            let top = [];
+            try {
+                top = (store?.groupTopSenders?.(e.groupOpenid, 5) ?? []).map((u) => ({ name: u.name || `${String(u.userOpenid).slice(0, 6)}…`, count: Number(u.count) }));
+            }
+            catch { /* ignore */ }
+            const days = daily[e.groupOpenid] ?? new Array(7).fill(0);
+            const pg = pulseGroups.get(e.groupOpenid);
+            return {
+                ...e,
+                registered: Boolean(d.name || d.number),
+                name: d.name ?? '', number: d.number ?? '', note: d.note ?? '', prompt: d.prompt ?? '',
+                label: GroupDirectory.label(e.groupOpenid),
+                memories: d.memories ?? [],
+                rate: rateStatus(e.groupOpenid, config),
+                today: days[days.length - 1] ?? 0,
+                week: days.reduce((a, b) => a + b, 0),
+                daily: days,
+                topSenders: top,
+                bot: pg ? { level: pg.level, activity: pg.activity, todayProactive: pg.todayCount, stats: pg.stats ?? {} } : null,
+            };
+        }).sort((a, b) => Number(b.lastAt ?? 0) - Number(a.lastAt ?? 0));
     };
     const disposers = [
         webServer.register({
@@ -93,7 +123,27 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                 if (req.method === 'GET') {
                     if (!guard(req, res, 'GET'))
                         return;
-                    sendJson(res, 200, { ok: true, max: GROUP_PROMPT_MAX, groups: knownGroups() });
+                    const groups = knownGroups();
+                    let storeInfo = null;
+                    try {
+                        const st = store?.stats?.();
+                        if (st)
+                            storeInfo = { path: st.path, sizeBytes: st.sizeBytes, total: st.total, firstAt: st.firstAt };
+                    }
+                    catch { /* ignore */ }
+                    sendJson(res, 200, {
+                        ok: true, max: GROUP_PROMPT_MAX, memoryMax: MEMORY_MAX, rateMax: RATE_LIMIT_MAX,
+                        defaultRate: rateStatus('', config).limit,
+                        summary: {
+                            groups: groups.length,
+                            groupMessages: groups.reduce((a, g) => a + (g.count || 0), 0),
+                            today: groups.reduce((a, g) => a + (g.today || 0), 0),
+                            week: groups.reduce((a, g) => a + (g.week || 0), 0),
+                            limitedToday: groups.reduce((a, g) => a + (g.rate?.limitedToday || 0), 0),
+                        },
+                        store: storeInfo,
+                        groups,
+                    });
                     return;
                 }
                 if (!guard(req, res, 'POST'))
@@ -128,6 +178,26 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                 if (patch.prompt && patch.prompt.length > GROUP_PROMPT_MAX) {
                     sendJson(res, 400, { ok: false, error: `群专属 prompt 最长 ${GROUP_PROMPT_MAX} 字` });
                     return;
+                }
+                if (body.rateLimit !== undefined) {
+                    const r = body.rateLimit;
+                    if (r !== null && !(Number.isInteger(r) && r >= 0 && r <= RATE_LIMIT_MAX)) {
+                        sendJson(res, 400, { ok: false, error: `每分钟次数应为 0–${RATE_LIMIT_MAX} 的整数（0 = 不限），或 null 恢复默认` });
+                        return;
+                    }
+                    patch.rateLimit = r;
+                }
+                if (body.memory && typeof body.memory === 'object') {
+                    const m = body.memory;
+                    const r = m.op === 'add' ? GroupDirectory.addMemory(gid, String(m.text ?? ''), 'panel')
+                        : m.op === 'update' ? GroupDirectory.updateMemory(gid, String(m.id ?? ''), String(m.text ?? ''))
+                            : m.op === 'remove' ? GroupDirectory.removeMemory(gid, String(m.id ?? ''))
+                                : m.op === 'clear' ? { cleared: GroupDirectory.clearMemories(gid) }
+                                    : { error: '未知的记忆操作' };
+                    if (r.error) {
+                        sendJson(res, 400, { ok: false, error: r.error });
+                        return;
+                    }
                 }
                 GroupDirectory.set(gid, patch);
                 logger.info(`im-qqbot: 面板更新群 ${gid}（prompt ${(patch.prompt ?? '').length} 字）`);

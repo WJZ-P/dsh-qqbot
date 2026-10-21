@@ -95,6 +95,11 @@ FROM messages GROUP BY user_openid ORDER BY lastAt DESC LIMIT ?`),
 FROM messages WHERE group_openid = ? AND received_at >= ? ORDER BY received_at ASC LIMIT ?`),
             activeGroups: db.prepare(`SELECT group_openid AS groupOpenid, COUNT(*) AS count FROM messages
 WHERE scene = 'group' AND group_openid IS NOT NULL AND received_at >= ? GROUP BY group_openid`),
+            groupDaily: db.prepare(`SELECT group_openid AS groupOpenid, CAST((received_at - ?) / 86400000 AS INTEGER) AS dayIdx, COUNT(*) AS count
+                FROM messages WHERE scene = 'group' AND group_openid IS NOT NULL AND received_at >= ? GROUP BY group_openid, dayIdx`),
+            groupTopSenders: db.prepare(`SELECT user_openid AS userOpenid, COUNT(*) AS count, MAX(received_at) AS lastAt,
+                json_extract(raw, '$.author.username') AS name
+                FROM messages WHERE group_openid = ? GROUP BY user_openid ORDER BY count DESC LIMIT ?`),
             deleteGroup: db.prepare(`DELETE FROM messages WHERE group_openid = ?`),
             deleteC2c: db.prepare(`DELETE FROM messages WHERE scene = 'c2c' AND user_openid = ?`),
             deleteOlder: db.prepare(`DELETE FROM messages WHERE received_at < ?`),
@@ -183,6 +188,23 @@ WHERE scene = 'group' AND group_openid IS NOT NULL AND received_at >= ? GROUP BY
     /** 某群某时刻之后的消息（群档案总结用） */
     groupSince(groupOpenid, sinceMs, limit = 1500) {
         return this.stmts.groupSince.all(groupOpenid, sinceMs, limit).map(normalizeRow);
+    }
+    /** 每个群最近 days 天的逐日消息数（下标 0 = 最早一天，最后一个 = 今天） */
+    groupDailyCounts(days = 7) {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const since = start.getTime() - (days - 1) * 86400000;
+        const out = {};
+        for (const r of this.stmts.groupDaily.all(since, since).map(normalizeRow)) {
+            const arr = (out[r.groupOpenid] ??= new Array(days).fill(0));
+            const i = Number(r.dayIdx);
+            if (i >= 0 && i < days)
+                arr[i] = Number(r.count);
+        }
+        return out;
+    }
+    groupTopSenders(groupOpenid, limit = 5) {
+        return this.stmts.groupTopSenders.all(groupOpenid, limit).map(normalizeRow);
     }
     activeGroupsSince(sinceMs) {
         return this.stmts.activeGroups.all(sinceMs).map(normalizeRow);

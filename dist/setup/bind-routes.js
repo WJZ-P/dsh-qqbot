@@ -1,6 +1,6 @@
 import { persistCredentialsToProfile, removeCredentialsFromProfile, updateProfileConfig, } from "./persist.js";
 import { getProfileDir } from "../shared/index.js";
-import { AccessControlSchema, GroupEngageSchema, PulseSchema, SleepSchema } from "../config.js";
+import { AccessControlSchema, GroupEngageSchema, GroupRateLimitSchema, PulseSchema, SleepSchema } from "../config.js";
 import { BIND_CONFIG_PATH, BIND_MANUAL_PATH, BIND_REFRESH_PATH, BIND_STATE_PATH, BIND_UNBIND_PATH, } from "../shared/bind-protocol.js";
 // 协议单一来源：shared/bind-protocol.ts（类型 + 路径常量，客户端共用）
 export { BIND_CONFIG_PATH, BIND_MANUAL_PATH, BIND_REFRESH_PATH, BIND_STATE_PATH, BIND_UNBIND_PATH };
@@ -9,7 +9,7 @@ const EDITABLE_CONFIG_KEYS = new Set([
     'requireMention', 'triggerPrefixes', 'streaming', 'showToolResults', 'debug',
     'provider', 'model', 'preset',
     'groupPrompt', 'directPrompt',
-    'access', 'groupEngage', 'sleep', 'replaceHarnessPrompt', 'modelSwitch', 'fullAccess', 'pulse',
+    'access', 'groupEngage', 'sleep', 'replaceHarnessPrompt', 'modelSwitch', 'fullAccess', 'pulse', 'groupRateLimit',
 ]);
 /** 白名单键的子 Schema（服务端校验：客户端校验仅为体验，安全边界在宿主） */
 const EDITABLE_CONFIG_SCHEMAS = {
@@ -48,6 +48,13 @@ const EDITABLE_CONFIG_SCHEMAS = {
         if (parsed.botNames.length > 20 || parsed.harvestKeywords.length > 30
             || [...parsed.botNames, ...parsed.harvestKeywords].some((k) => k.length > 64))
             throw new TypeError('pulse.botNames / harvestKeywords 过多或过长');
+        return parsed;
+    },
+    groupRateLimit: (v) => {
+        const parsed = GroupRateLimitSchema(v);
+        parsed.replies = parsed.replies.map((s) => s.trim()).filter(Boolean);
+        if (parsed.replies.length > 30 || parsed.replies.some((s) => s.length > 200))
+            throw new TypeError('groupRateLimit.replies 最多 30 句、每句不超过 200 字');
         return parsed;
     },
     groupEngage: (v) => {
