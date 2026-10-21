@@ -2,9 +2,28 @@ import { chunkMarkdownText } from "./chunker.js";
 import { StreamingWriter } from "./streaming-writer.js";
 import { NO_REPLY_TOKEN } from "../features/group-engage.js";
 import { getActivePulse } from "../features/group-pulse.js";
-/** 去掉静默标记；整条只有标记时返回空串 */
+/** 去掉静默标记；整条只有标记时返回空串。顺带去掉「（已补发表情包）」这类旁白 */
 export function stripNoReply(text) {
-    return text.includes(NO_REPLY_TOKEN) ? text.split(NO_REPLY_TOKEN).join('').trim() : text;
+    const t = text.includes(NO_REPLY_TOKEN) ? text.split(NO_REPLY_TOKEN).join('').trim() : text;
+    return stripStickerMeta(t);
+}
+const META_LINE = /^(给你们?|给大家)?(已经?|刚刚?|这就)?(补|再|顺手|顺便)?(发|附|送|配|丢|甩|来)(了|上|出)?(个|一张|一个|张)?(表情[包图]?)(一张|一个)?[了啦哦喵~～。！!]*$/;
+const META_VERB = /(已|补|再|顺手|顺便|附|送|配|丢|甩|来|发了?|发个|发一?张)/;
+/** 模型发完表情包后常补一句「已补发表情包」——这类旁白太像人机，直接删掉 */
+export function stripStickerMeta(text) {
+    if (!/表情/.test(text))
+        return text;
+    let t = text
+        // 括号 / 星号 / 方括号里的旁白：（已补发表情包）*发了个表情包* [表情包]
+        .replace(/[（(【\[*_~]{1,2}[^（）()【】\[\]\n]{0,24}表情[包图]?[^（）()【】\[\]\n]{0,16}[）)】\]*_~]{1,2}/g, (m) => (META_VERB.test(m) || m.length <= 8 ? '' : m));
+    // 整行只是在说「发了表情包」的短句
+    t = t.split('\n').filter((line) => {
+        const s = line.trim();
+        if (!s || !/表情/.test(s) || s.length > 24)
+            return true;
+        return !META_LINE.test(s);
+    }).join('\n');
+    return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 /** 分条发送标记：模型在想分成几条消息发出时，在两条之间单独一行输出该标记 */
 export const SPLIT_TOKEN = '[SPLIT]';

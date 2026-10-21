@@ -82,7 +82,7 @@ export function registerStickerTool(ctx, manager, mediaSender, config, logger) {
                     if (gid)
                         getActivePulse()?.push(gid, { at: Date.now(), bot: true, name: '小喵', text: '', stickerIds: [e.id] });
                     logger.info(`im-qqbot: qqbot_sticker 发送 ${e.id} → ${record.scope}:${record.peerId}`);
-                    return { ok: true, sent: `${e.id}（${e.emotion}）`, note: '已经发出去了，不要再在文字里描述这张图。' };
+                    return { ok: true, sent: `${e.id}（${e.emotion}）`, note: '表情包已直接发到群里。不要再说「已补发表情包」「发了个表情包」之类的话，也不要描述这张图；文字已经说完就直接结束本轮，不要再输出任何内容。' };
                 }
                 case 'add_url': {
                     if (!args.url)

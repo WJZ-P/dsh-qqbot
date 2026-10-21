@@ -90,7 +90,7 @@ function rollSticker(config) {
         return false;
     }
 }
-const STICKER_NOTE = '[System note] 本轮掷到了表情包：正常用文字回复后，再调用 qqbot_sticker（action=send，emotion 选和你这条回复情绪最贴的）补发一张表情包，它会作为单独一条消息发出；文字里不要描述这张图。若本轮决定不回复（[NO_REPLY]）则也不发。';
+const STICKER_NOTE = '[System note] 本轮掷到了表情包：正常用文字回复后，再调用 qqbot_sticker（action=send，emotion 选和你这条回复情绪最贴的）补发一张表情包，它会作为单独一条消息发出。发完就结束，绝对不要再说「已补发表情包」「（发了个表情包）」之类的话，也不要描述这张图——像真人一样默默把图甩出来就好。若本轮决定不回复（[NO_REPLY]）则也不发。';
 function assembleAgentBody(msg, state, scope, logger, config) {
     const isGroup = scope === 'group';
     // 主动参与（未 @ 但被 group-engage 判定触发）与 @ 同等对待：带历史上下文、允许空内容
