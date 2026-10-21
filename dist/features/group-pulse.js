@@ -608,6 +608,7 @@ ${lines.join('\n')}
         const body = ['[Chat history begins]', ...lines, '[Chat history ends]', '',
             `[Proactive turn] 你没有被 @。群友正在聊「${j.topic ?? ''}」，你决定自然地插一句（角度参考：${j.angle ?? '随意'}；可以针对 #${j.replyTo} 那条）。`,
             '要求：像群友一样口语化、简短（一两句），可以接梗、吐槽、补充信息；不要自我介绍、不要总结大家在聊什么、不要说“我注意到…”、不要用列表或标题。',
+            '闲聊时可以用单独一行的 [SPLIT] 把话拆成两三条短消息连着发，更像真人（不必每次都拆）。',
             stickerHint,
             `仔细看完如果觉得插话不合适，只输出 ${NO_REPLY_TOKEN}。`].join('\n');
         try {

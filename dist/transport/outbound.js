@@ -1,5 +1,5 @@
 import { chunkMarkdownText } from "./chunker.js";
-import { OutboundBuffer, stripNoReply } from "./outbound-buffer.js";
+import { OutboundBuffer, sendPieces, stripNoReply, unsplit } from "./outbound-buffer.js";
 import { formatToolResult } from "./tool-presenter.js";
 import { parseEvent, extractTurnError, } from "./events.js";
 import { getActivePulse } from "../features/group-pulse.js";
@@ -127,19 +127,20 @@ class OutboundRouter {
         }
         if (record.scope === 'group' && tag === 'sendMarkdown') {
             try {
-                getActivePulse()?.onBotSent(record.peerId, text);
+                getActivePulse()?.onBotSent(record.peerId, unsplit(text));
             }
             catch { /* ignore */ }
         }
-        const chunks = chunkMarkdownText(text, this.config.textChunkLimit);
-        for (const chunk of chunks) {
+        if (tag !== 'sendMarkdown')
+            text = unsplit(text);
+        await sendPieces(text, this.config.textChunkLimit, async (chunk) => {
             try {
                 await this.bot.sendMarkdown(record.replyTarget, chunk);
             }
             catch (err) {
                 this.logger.error(`im-qqbot: ${tag} failed: ${err instanceof Error ? err.message : String(err)}`);
             }
-        }
+        });
     }
 }
 /**

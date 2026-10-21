@@ -1,3 +1,4 @@
+import { unsplit } from "./outbound-buffer.js";
 export class StreamingWriter {
     fullText = '';
     session = null;
@@ -98,7 +99,8 @@ export class StreamingWriter {
             }
         }
         try {
-            await this.session.update(this.fullText);
+            // 分条标记在流式里显示为换行（流式是同一条消息，无法真正分条）
+            await this.session.update(unsplit(this.fullText).replace(/\[SPL?I?T?$/, ''));
             this.sentChunkCount++;
         }
         catch (err) {

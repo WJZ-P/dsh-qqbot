@@ -6,6 +6,37 @@ import { getActivePulse } from "../features/group-pulse.js";
 export function stripNoReply(text) {
     return text.includes(NO_REPLY_TOKEN) ? text.split(NO_REPLY_TOKEN).join('').trim() : text;
 }
+/** 分条发送标记：模型在想分成几条消息发出时，在两条之间单独一行输出该标记 */
+export const SPLIT_TOKEN = '[SPLIT]';
+const MAX_PIECES = 4; // 同一 msgId 被动回复上限 4 条（ReplyLimiter），多出的并入最后一条
+/** 按分条标记切分；无标记时返回单元素数组 */
+export function splitPieces(text) {
+    if (!text.includes(SPLIT_TOKEN))
+        return [text];
+    const parts = text.split(SPLIT_TOKEN).map((s) => s.trim()).filter(Boolean);
+    if (parts.length > MAX_PIECES)
+        parts.splice(MAX_PIECES - 1, parts.length, parts.slice(MAX_PIECES - 1).join('\n'));
+    return parts;
+}
+/** 流式展示时把分条标记替换成换行 */
+export function unsplit(text) {
+    return text.includes(SPLIT_TOKEN) ? text.split(SPLIT_TOKEN).map((s) => s.trim()).join('\n') : text;
+}
+/** 模拟打字停顿：按下一条长度 0.8~4 秒 */
+export function typingDelay(piece) {
+    const ms = Math.min(4000, 700 + piece.length * 90) * (0.8 + Math.random() * 0.4);
+    return new Promise((r) => setTimeout(r, ms));
+}
+/** 依次发送各条（中间带打字停顿），每条再按长度上限切块 */
+export async function sendPieces(text, limit, sendOne) {
+    const pieces = splitPieces(text);
+    for (let i = 0; i < pieces.length; i += 1) {
+        if (i > 0)
+            await typingDelay(pieces[i]);
+        for (const chunk of chunkMarkdownText(pieces[i], limit))
+            await sendOne(chunk);
+    }
+}
 /** 流式输出节流间隔(ms)：连续 chunk 累积后停顿该间隔才推送 */
 const STREAM_THROTTLE_MS = 200;
 export class OutboundBuffer {
@@ -55,14 +86,11 @@ export class OutboundBuffer {
             }
             if (this.record.scope === 'group') {
                 try {
-                    getActivePulse()?.onBotSent(this.record.peerId, text);
+                    getActivePulse()?.onBotSent(this.record.peerId, unsplit(text));
                 }
                 catch { /* ignore */ }
             }
-            const chunks = chunkMarkdownText(text, this.limit);
-            for (const chunk of chunks) {
-                await this.bot.sendMarkdown(this.record.replyTarget, chunk);
-            }
+            await sendPieces(text, this.limit, (chunk) => this.bot.sendMarkdown(this.record.replyTarget, chunk));
         }
         catch (err) {
             this.logger.error(`im-qqbot: flush failed: ${err instanceof Error ? err.message : String(err)}`);
