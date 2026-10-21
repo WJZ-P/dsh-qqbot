@@ -221,7 +221,7 @@ export class PulseMaintenance {
         if (text.length > 12000)
             text = text.slice(-12000);
         const old = this.profiles.get(gid);
-        const prompt = `下面是 QQ 群「${GroupDirectory.label(gid)}」最近的聊天记录。请更新这个群的“群档案”，帮助群里的猫娘机器人“小喵”更像老群友。
+        const prompt = `下面是 QQ 群「${GroupDirectory.label(gid)}」最近的聊天记录。请更新这个群的“群档案”，帮助群里的机器人更像老群友（只总结群本身，不要描述机器人的人设）。
 ${old ? `旧档案（合并更新，过时的去掉）：${JSON.stringify({ summary: old.summary, topics: old.topics, memes: old.memes, members: old.members })}` : ''}
 聊天记录：
 ${text}
