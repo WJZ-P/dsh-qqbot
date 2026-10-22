@@ -166,6 +166,15 @@ export class SessionManager {
             const duty = sections.findIndex((s) => s.name === 'qqbot:group-duty');
             if (duty >= 0)
                 sections.push(sections.splice(duty, 1)[0]);
+            // 诊断：群人设变化后第一次组装时记一条，确认新 prompt 确实进了 system prompt
+            if (record.scope === 'group') {
+                const sig = `${(groupInfo?.prompt ?? '').length}:${(groupInfo?.prompt ?? '').slice(0, 24)}`;
+                this.dutySig = this.dutySig ?? new Map();
+                if (this.dutySig.get(record.sessionKey) !== sig) {
+                    this.dutySig.set(record.sessionKey, sig);
+                    this.logger.info(`im-qqbot: system prompt 组装 ${record.sessionKey} 群人设 ${groupInfo?.prompt ? `${groupInfo.prompt.length} 字` : '无'}（${sections.length} 段）`);
+                }
+            }
             // 里模式：主人私有 prompt 原样插到最开头
             const ura = uraSection();
             if (ura)

@@ -296,6 +296,17 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                     sendJson(res, 400, { ok: false, error: 'groupOpenid 无效' });
                     return;
                 }
+                if (body.reset === true) {
+                    try {
+                        await manager.remove('group', gid);
+                        logger.info(`im-qqbot: 面板清空群上下文 ${gid}`);
+                        sendJson(res, 200, { ok: true, groups: knownGroups() });
+                    }
+                    catch (err) {
+                        sendJson(res, 500, { ok: false, error: errText(err) });
+                    }
+                    return;
+                }
                 if (body.model !== undefined) {
                     let route = null;
                     if (body.model !== null) {
