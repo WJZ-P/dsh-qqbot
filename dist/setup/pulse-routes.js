@@ -118,8 +118,38 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                 botRole: groupAdmin?.cache?.get(`state:${e.groupOpenid}`)?.data?.member_role ?? null,
                 official: (() => { const i = groupAdmin?.cache?.get(`info:${e.groupOpenid}`)?.data; return i ? { name: i.group_name, members: i.group_member_num } : null; })(),
                 bot: pg ? { level: pg.level, activity: pg.activity, todayProactive: pg.todayCount, stats: pg.stats ?? {} } : null,
+                model: modelInfo(e.groupOpenid),
             };
         }).sort((a, b) => Number(b.lastAt ?? 0) - Number(a.lastAt ?? 0));
+    };
+    /** 某群当前模型：生效路由、来源（peer 单独设置 / scope 所有群默认 / default）、运行中会话实际在用的（可能是同组替补） */
+    const modelInfo = (gid) => {
+        try {
+            const key = manager.sessionKey('group', gid);
+            const r = manager.modelResolver;
+            const record = manager.sessions.get(key);
+            const active = record ? (record.activeRoute ?? manager.agentRoute?.(record) ?? null) : null;
+            return {
+                route: r.getEffectiveRoute(key) ?? null,
+                source: r.getRouteSource(key),
+                override: r.prefs.getOverride(key) ?? null,
+                active: active ? { provider: active.provider, model: active.model } : null,
+            };
+        }
+        catch {
+            return null;
+        }
+    };
+    const validateRoute = async (raw) => {
+        if (!raw || typeof raw !== 'object' || typeof raw.provider !== 'string' || typeof raw.model !== 'string' || !raw.provider || !raw.model)
+            return { error: 'model 需为 { provider, model } 或 null' };
+        const groups = await manager.listModelGroups();
+        const g = groups.find((x) => x.provider === raw.provider);
+        if (!g)
+            return { error: `模型分组「${raw.provider}」不存在` };
+        if (!g.failed && !g.models.some((m) => m.id === raw.model))
+            return { error: `分组「${g.label}」里没有模型「${raw.model}」` };
+        return { route: { provider: raw.provider, model: raw.model } };
     };
     const disposers = [
         webServer.register({
@@ -224,6 +254,8 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                             repliesToday: groups.reduce((a, g) => a + (g.rate?.used?.day || 0), 0),
                         },
                         store: storeInfo,
+                        allGroupsModel: (() => { try { return manager.modelResolver.prefs.getOverride(`qqbot:${config.appId}:group:*`) ?? null; } catch { return null; } })(),
+                        fallbackModel: (() => { try { const r = manager.modelResolver; return config.provider && config.model ? { provider: config.provider, model: config.model } : (r.resolveDefault?.() ?? null); } catch { return null; } })(),
                         groups,
                     });
                     return;
@@ -238,9 +270,49 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                     sendJson(res, 400, { ok: false, error: errText(err) });
                     return;
                 }
+                // 所有群默认模型（不带 groupOpenid）：route 或 null（清除，回落到插件 / 宿主默认）
+                if (body.allGroupsModel !== undefined) {
+                    let route = null;
+                    if (body.allGroupsModel !== null) {
+                        const v = await validateRoute(body.allGroupsModel);
+                        if (v.error) {
+                            sendJson(res, 400, { ok: false, error: v.error });
+                            return;
+                        }
+                        route = v.route;
+                    }
+                    try {
+                        // 不清各群单独设置：面板里单独选过的群保持不变
+                        const r = await manager.setScopeModel('group', route, { clearPeers: body.clearPeers === true });
+                        sendJson(res, 200, { ok: true, ...r, groups: knownGroups() });
+                    }
+                    catch (err) {
+                        sendJson(res, 500, { ok: false, error: errText(err) });
+                    }
+                    return;
+                }
                 const gid = typeof body.groupOpenid === 'string' ? body.groupOpenid.trim().toUpperCase() : '';
                 if (!/^[0-9A-F]{32}$/.test(gid)) {
                     sendJson(res, 400, { ok: false, error: 'groupOpenid 无效' });
+                    return;
+                }
+                if (body.model !== undefined) {
+                    let route = null;
+                    if (body.model !== null) {
+                        const v = await validateRoute(body.model);
+                        if (v.error) {
+                            sendJson(res, 400, { ok: false, error: v.error });
+                            return;
+                        }
+                        route = v.route;
+                    }
+                    try {
+                        const r = await manager.setPeerModelFromPanel('group', gid, route);
+                        sendJson(res, 200, { ok: true, deferred: r.deferred, effective: r.effective, groups: knownGroups() });
+                    }
+                    catch (err) {
+                        sendJson(res, 500, { ok: false, error: errText(err) });
+                    }
                     return;
                 }
                 const patch = {};

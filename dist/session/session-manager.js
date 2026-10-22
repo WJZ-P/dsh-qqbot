@@ -383,6 +383,44 @@ export class SessionManager {
         record.lastActivity = Date.now();
         this.logger.info(`session rebuilt via resume: key=${key} route=${effectiveRoute ? `${effectiveRoute.provider}/${effectiveRoute.model}` : 'default'} sessionId=${record.sessionId}`);
     }
+    /**
+     * 面板用：给某个群 / 私聊设置（route）或清除（null）单独模型。
+     * 正在回复的会话不打断：等本轮结束再按新模型重建；没有活跃会话则只保存偏好。
+     */
+    async setPeerModelFromPanel(scope, peerId, route) {
+        const key = this.sessionKey(scope, peerId);
+        if (route)
+            this.modelResolver.setOverride(key, route);
+        else
+            this.modelResolver.clearOverride(key);
+        const effective = this.modelResolver.getEffectiveRoute(key);
+        const record = this.sessions.get(key);
+        const rebuild = async () => {
+            const r = this.sessions.get(key);
+            if (!r)
+                return;
+            try {
+                await this.rebuildSession(r, { route: this.modelResolver.getEffectiveRoute(key) });
+            }
+            catch (err) {
+                this.logger.warn(`im-qqbot: 面板切模型重建失败（下条消息重新建立）: ${key} ${err instanceof Error ? err.message : String(err)}`);
+            }
+        };
+        let deferred = false;
+        if (record) {
+            if (record.busy) {
+                deferred = true;
+                void (async () => {
+                    try { await record.agent.whenIdle(); } catch { /* ignore */ }
+                    await rebuild();
+                })();
+            }
+            else
+                await rebuild();
+        }
+        this.logger.info(`im-qqbot: 面板设置模型 ${key} → ${route ? `${route.provider}/${route.model}` : `(默认) ${effective?.provider}/${effective?.model}`}${deferred ? '（本轮结束后生效）' : ''}`);
+        return { effective, deferred };
+    }
     /** 恢复默认模型（config 指定 > settings.yaml > 宿主默认），保留对话历史 */
     async resetModelOverride(scope, peerId) {
         const key = this.sessionKey(scope, peerId);
@@ -417,6 +455,17 @@ export class SessionManager {
         for (const record of [...this.sessions.values()]) {
             if (record.scope !== scope || record.sessionKey === skipKey)
                 continue;
+            if (record.busy) {
+                // 正在回复：等本轮结束再换，避免把回复掐断
+                void (async () => {
+                    try { await record.agent.whenIdle(); } catch { /* ignore */ }
+                    const r = this.sessions.get(record.sessionKey);
+                    if (r)
+                        await this.rebuildSession(r, { route: this.modelResolver.getEffectiveRoute(r.sessionKey) }).catch((err) => this.logger.warn(`scope model deferred rebuild failed: key=${r.sessionKey} err=${err instanceof Error ? err.message : String(err)}`));
+                })();
+                rebuilt += 1;
+                continue;
+            }
             try {
                 await this.rebuildSession(record, { route: this.modelResolver.getEffectiveRoute(record.sessionKey) });
                 rebuilt += 1;
