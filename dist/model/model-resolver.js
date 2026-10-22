@@ -245,7 +245,23 @@ export class ModelResolver {
         if (!route?.provider || !route?.model)
             return;
         this.bad = this.bad ?? new Map();
-        this.bad.set(`${route.provider}/${route.model}`, Date.now() + minutes * 60_000);
+        const now = Date.now();
+        this.bad.set(`${route.provider}/${route.model}`, now + minutes * 60_000);
+        // 同一分组 2 分钟内有两个不同模型失败 ≈ 整条通道被限流（免费通道按 IP / 共享凭据计额度）。
+        // 这时再挨个换模型只会继续吃 429、把上游的惩罚越拉越长，所以整组暂停 10 分钟。
+        this.recentFails = (this.recentFails ?? []).filter((f) => now - f.at < 120_000);
+        this.recentFails.push({ provider: route.provider, model: route.model, at: now });
+        const models = new Set(this.recentFails.filter((f) => f.provider === route.provider).map((f) => f.model));
+        if (models.size >= 2) {
+            this.groupBad = this.groupBad ?? new Map();
+            this.groupBad.set(route.provider, now + 10 * 60_000);
+            this.logger?.warn?.(`im-qqbot: 分组 ${route.provider} 短时间内多个模型失败，判定整组限流，暂停 10 分钟`);
+        }
+    }
+    /** 整组限流剩余毫秒（0 = 未限流） */
+    groupPausedFor(provider) {
+        const until = this.groupBad?.get(provider);
+        return until !== undefined && until > Date.now() ? until - Date.now() : 0;
     }
     clearBad(route) {
         this.bad?.delete(`${route.provider}/${route.model}`);
@@ -275,6 +291,9 @@ export class ModelResolver {
             return { error: `模型分组「${route.provider}」不存在（插件被停用或卸载了？）`, group: route.provider };
         if (g.failed)
             return { route }; // 该分组列表拉取失败：不判定，照常用
+        const paused = this.groupPausedFor(g.provider);
+        if (paused > 0)
+            return { error: `模型分组「${g.label}」整体限流中（约 ${Math.ceil(paused / 60_000)} 分钟后自动重试）`, group: g.label, groupPaused: true };
         const usable = g.models.filter((m) => !this.isBad(g.provider, m.id));
         if (usable.some((m) => m.id === route.model))
             return { route };

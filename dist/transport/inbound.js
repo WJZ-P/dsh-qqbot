@@ -56,7 +56,9 @@ export async function handleInbound(ctx, manager, config, logger) {
         const chk = await manager.ensureModelUsable(record);
         if (chk?.error) {
             logger.warn(`im-qqbot: ${chk.error}，本条不处理: ${scope}:${peerId}`);
-            await bot.sendMarkdown(replyTarget, `⚠️ ${chk.error}，这条消息没法回复。请主人用 /model 查看并切换到其他分组的模型。`).catch(() => { });
+            await bot.sendMarkdown(replyTarget, chk.groupPaused
+                ? `⚠️ ${chk.error}，先歇一会儿～`
+                : `⚠️ ${chk.error}，这条消息没法回复。请主人用 /model 查看并切换到其他分组的模型。`).catch(() => { });
             return;
         }
         if (chk?.recreate) {

@@ -10,7 +10,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { callLite, parseJsonLoose, pickCheapRoute, pickVisionRoute } from "./llm-lite.js";
-import { StickerLibrary, setStickerSendSize } from "./sticker-library.js";
+import { StickerLibrary, setStickerSendSize, isRateLimitError } from "./sticker-library.js";
 import { readableText } from "./group-pulse.js";
 import { getActiveSleepClock } from "./sleep-clock.js";
 import { GroupDirectory } from "./group-directory.js";
@@ -174,18 +174,28 @@ export class PulseMaintenance {
     async nightly() {
         this.logger.info('im-qqbot: 夜间维护开始');
         const route = await this.route();
+        // 免费通道限流会越罚越久：任何一步遇到限流，就停掉本晚剩下的所有模型调用
+        let limited = false;
         if (this.store) {
             const groups = this.store.activeGroupsSince(Date.now() - 36 * 3_600_000).filter((g) => g.count >= 15);
             for (const g of groups) {
+                if (limited)
+                    break;
                 try {
                     await this.summarize(g.groupOpenid, route);
                 }
                 catch (err) {
-                    this.logger.warn(`im-qqbot: 群档案生成失败 ${g.groupOpenid}: ${err instanceof Error ? err.message : String(err)}`);
+                    const msg = err instanceof Error ? err.message : String(err);
+                    this.logger.warn(`im-qqbot: 群档案生成失败 ${g.groupOpenid}: ${msg}`);
+                    if (isRateLimitError(msg))
+                        limited = true;
                 }
+                await new Promise((r) => setTimeout(r, 5000));
             }
         }
-        if (this.pulse.pulseCfg.stickers) {
+        if (limited)
+            this.logger.warn('im-qqbot: 夜间维护遇到模型限流，跳过表情包搜集 / 打标签，明晚再做');
+        if (this.pulse.pulseCfg.stickers && !limited) {
             try {
                 await this.stickerRefresh(route);
             }
@@ -195,9 +205,10 @@ export class PulseMaintenance {
             try {
                 const vroute = await this.visionRoute();
                 this.logger.info(`im-qqbot: 夜间打标签使用模型 ${vroute.provider}/${vroute.model}`);
-                const r = await this.library.tagPending(this.ctx, vroute, 400, this.logger);
+                // 每晚最多 60 张、逐张间隔 8 秒；剩下的留到之后几晚
+                const r = await this.library.tagPending(this.ctx, vroute, 60, this.logger, { paceMs: 8000 });
                 if (r.tried > 0)
-                    this.logger.info(`im-qqbot: 夜间统一打标签 ${r.ok}/${r.tried}`);
+                    this.logger.info(`im-qqbot: 夜间统一打标签 ${r.ok}/${r.tried}（待打 ${r.pending}${r.stopped ? '，因限流提前停止' : ''}）`);
             }
             catch (err) {
                 this.logger.warn(`im-qqbot: 表情包打标签失败: ${err instanceof Error ? err.message : String(err)}`);

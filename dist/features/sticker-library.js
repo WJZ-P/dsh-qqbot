@@ -32,6 +32,10 @@ function runPy(args) {
         tryAt(0);
     });
 }
+/** 限流 / 额度类错误：遇到就别再连发了 */
+export function isRateLimitError(msg) {
+    return /rate.?limit|too many requests|429|usage limit|quota|限流|额度/i.test(String(msg ?? ''));
+}
 export const STICKER_DIR = join(homedir(), '.dsh-qqbot', 'stickers');
 const INDEX_PATH = join(STICKER_DIR, 'index.json');
 export const STICKER_MAX_DEFAULT = 500;
@@ -242,6 +246,10 @@ export class StickerLibrary {
         this.downloading.set(id, job);
         return job;
     }
+    /** 批量打标签之外的地方也会用：判断是不是限流 / 额度类错误 */
+    static isRateLimitError(msg) {
+        return isRateLimitError(msg);
+    }
     /** 用视觉模型给一张图打标签；返回解析结果 */
     async tagOne(ctx, route, id) {
         const e = this.entries.get(id);
@@ -270,26 +278,43 @@ export class StickerLibrary {
         return e;
     }
     /** 批量打标签（未打标签且已下载的） */
-    async tagPending(ctx, route, limit, logger) {
+    /**
+     * 批量打标签（未打标签且已下载的）。
+     * 免费模型通道按会话计额度、429 的 retry-after 会越罚越长：一口气连打上百张会把整条通道
+     * 锁上大半天（2026-10-22 凌晨 175 连发 → 全天限流）。所以逐张之间留间隔，
+     * 一旦遇到限流 / 额度类错误立刻停下（不计入 tagFails，明晚再打）。
+     */
+    async tagPending(ctx, route, limit, logger, { paceMs = 8000 } = {}) {
         const pending = [...this.entries.values()]
             .filter((e) => !e.tagged && (e.tagFails ?? 0) < 3 && this.hasFile(e.id))
             .sort((a, b) => b.seenCount - a.seenCount)
             .slice(0, limit);
         let ok = 0;
+        let tried = 0;
+        let stopped;
         for (const e of pending) {
+            if (tried > 0 && paceMs > 0)
+                await new Promise((r) => setTimeout(r, paceMs));
+            tried += 1;
             try {
                 await this.tagOne(ctx, route, e.id);
                 ok += 1;
             }
             catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                if (isRateLimitError(msg)) {
+                    stopped = msg;
+                    logger?.warn?.(`im-qqbot: 打标签遇到限流，本次停止（已打 ${ok}/${tried}，剩余留到下次）: ${msg}`);
+                    break;
+                }
                 e.tagFails = (e.tagFails ?? 0) + 1;
-                e.tagError = err instanceof Error ? err.message : String(err);
+                e.tagError = msg;
                 logger?.warn?.(`im-qqbot: 表情包打标签失败 ${e.id}: ${e.tagError}`);
             }
         }
-        if (pending.length > 0)
+        if (tried > 0)
             this.save();
-        return { tried: pending.length, ok };
+        return { tried, ok, pending: pending.length, stopped };
     }
     /**
      * 从网址收录（网上搜集）：下载 → 去重 → 入库（未打标签）。
