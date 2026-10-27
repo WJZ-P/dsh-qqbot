@@ -126,8 +126,10 @@ export class SessionManager {
                 : (assembled.sections ?? []).filter((s) => !HARNESS_ONLY_SECTION.test(s.name ?? ''));
             const sections = [channel, ...kept];
             const hasGroupPrompt = record.scope === 'group' && Boolean(groupInfo?.prompt);
-            // 群有专属 prompt 时完全替换总 prompt（人设、语气、规则都以群 prompt 为准）
-            if (prompt && !hasGroupPrompt)
+            const replaceMode = hasGroupPrompt && groupInfo?.promptMode === 'replace';
+            // 群 prompt 缺省是「补充」：默认群聊 prompt 照常注入，群 prompt 接在最后；
+            // promptMode=replace 时才完全替换默认 prompt（人设、语气、规则都以群 prompt 为准）
+            if (prompt && !replaceMode)
                 sections.push({ name: 'qqbot:scope-prompt', order: 90, text: prompt });
             if (record.scope === 'group') {
                 const mems = groupInfo?.memories ?? [];
@@ -140,7 +142,14 @@ export class SessionManager {
                         + '\n值得长期记住的事（群规/约定、群友稳定的偏好和称呼、重要决定、有人明确让你「记住」的）用 qqbot_group_memory add 记下；过时的用 update/remove。闲聊碎片不要记。',
                 });
             }
-            if (record.scope === 'group' && groupInfo?.prompt) {
+            if (record.scope === 'group' && groupInfo?.prompt && !replaceMode) {
+                sections.push({
+                    name: 'qqbot:group-duty', order: 999,
+                    text: '【本群补充规则】以下是主人为本群额外加的设定，在上面默认人设的基础上生效：人设、性格照旧，'
+                        + `和默认设定冲突的地方以这里为准；上面【权限规则】里的本机文件/系统操作限制仍然有效。\n${groupInfo.prompt}`,
+                });
+            }
+            if (record.scope === 'group' && groupInfo?.prompt && replaceMode) {
                 sections.push({
                     name: 'qqbot:group-duty', order: 999,
                     text: `【本群人设与规则】以下是主人为本群写的完整设定，它就是你在这个群里的身份、性格、语气和规则，完全取代任何默认人设（包括「小喵」「猫娘」「句尾带喵」之类的设定，除非下面自己写了）。`

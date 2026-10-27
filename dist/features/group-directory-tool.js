@@ -9,7 +9,9 @@ const DESCRIPTION = 'Record or look up QQ group names and group numbers. The QQ 
     + '"这个群叫XX，群号123456" (omit `group` to record the current group); action=list to show all registered groups; '
     + 'action=remove to delete an entry. Registered groups can then be targeted by name or number in qqbot_switch_model. '
     + 'Use `prompt` (action=set) to give a group its own duties/role instructions when the owner says e.g. "你在这个群负责…" — '
-    + 'it is injected into every turn of that group with the HIGHEST priority (overrides the system / global prompt on conflict, except permission rules); empty string clears it. '
+    + 'by default (prompt_mode=append) it is ADDED after the default group persona, which stays in effect; the group prompt wins only where they conflict. '
+    + 'Use prompt_mode=replace only when the owner explicitly wants this group to drop the default persona entirely (e.g. "这个群换成另一个人设"). '
+    + 'Permission rules always stay. Empty string clears the prompt. '
     + 'Only the verified owner may set or remove.';
 export function registerGroupDirectoryTool(ctx, manager, logger) {
     const tools = ctx.get('tools');
@@ -29,6 +31,7 @@ export function registerGroupDirectoryTool(ctx, manager, logger) {
                 number: { type: 'string', description: 'For set: QQ group number (群号). Empty string clears it.' },
                 note: { type: 'string', description: 'For set: optional free-form note about the group.' },
                 prompt: { type: 'string', description: 'For set: this group\'s dedicated instructions (your duties/role/tone in this group, up to 4000 chars). Empty string clears it. Write it as instructions to yourself.' },
+                prompt_mode: { type: 'string', enum: ['append', 'replace'], description: 'For set: append (default) = add to the default group persona; replace = this group prompt completely replaces the default persona.' },
             },
             required: ['action'],
             additionalProperties: false,
@@ -56,7 +59,7 @@ export function registerGroupDirectoryTool(ctx, manager, logger) {
             const record = exec.agent !== undefined ? manager.findByAgent(exec.agent) : undefined;
             if (record === undefined)
                 throw new Error('qqbot_group_directory 只能在 QQ 会话中使用');
-            const fmt = (g) => `${GroupDirectory.label(g.openid)}${g.note ? `（${g.note}）` : ''} — openid ${g.openid}${g.openid === record.peerId ? ' ← 当前群' : ''}${g.prompt ? `\n  群专属职责：${g.prompt.length > 300 ? `${g.prompt.slice(0, 300)}…` : g.prompt}` : ''}`;
+            const fmt = (g) => `${GroupDirectory.label(g.openid)}${g.note ? `（${g.note}）` : ''} — openid ${g.openid}${g.openid === record.peerId ? ' ← 当前群' : ''}${g.prompt ? `\n  群专属设定（${g.promptMode === 'replace' ? '替换默认人设' : '补充默认人设'}）：${g.prompt.length > 300 ? `${g.prompt.slice(0, 300)}…` : g.prompt}` : ''}`;
             if (args.action === 'list') {
                 return { ok: true, groups: GroupDirectory.list().map(fmt) };
             }
@@ -82,7 +85,7 @@ export function registerGroupDirectoryTool(ctx, manager, logger) {
                 throw new Error(`未知 action: ${String(args.action)}`);
             if (args.number !== undefined && String(args.number).trim() !== '' && !/^\d{5,12}$/.test(String(args.number).trim()))
                 return { ok: false, error: '群号应为 5–12 位数字' };
-            const entry = GroupDirectory.set(openid, { name: args.name, number: args.number, note: args.note, prompt: args.prompt });
+            const entry = GroupDirectory.set(openid, { name: args.name, number: args.number, note: args.note, prompt: args.prompt, promptMode: args.prompt_mode === 'replace' || args.prompt_mode === 'append' ? args.prompt_mode : undefined });
             logger.info(`im-qqbot: 群目录登记 ${openid} → ${JSON.stringify({ ...entry, prompt: entry.prompt ? `${entry.prompt.length} 字` : undefined })}`);
             return { ok: true, entry: fmt({ openid, ...entry }) };
         },

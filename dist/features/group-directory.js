@@ -5,6 +5,7 @@
  * （qqbot_group_directory 工具）或在面板「群聊管理」中录入。存储：~/.dsh-qqbot/group-directory.json
  *
  * - prompt：群专属职责/人设（最长 4000 字）
+ * - promptMode：append（缺省，接在默认群聊 prompt 后面作为补充）| replace（完全替换默认 prompt）
  * - rateLimit：本群每分钟最多回复次数；undefined = 用全局默认，0 = 不限
  * - proactive：主动插话档位 normal | less | more | off（缺省 normal）
  * - quietUntil：安静模式截止时间戳（期间不主动插话，@ 仍回复）
@@ -72,6 +73,8 @@ function sanitize(v) {
     }
     if (PROACTIVE_MODES.includes(v.proactive) && v.proactive !== 'normal')
         out.proactive = v.proactive;
+    if (v.promptMode === 'replace')
+        out.promptMode = 'replace';
     if (typeof v.quietUntil === 'number' && v.quietUntil > Date.now())
         out.quietUntil = v.quietUntil;
     if (Array.isArray(v.memories)) {
@@ -138,6 +141,12 @@ export const GroupDirectory = {
                 delete merged.proactive;
             else
                 merged.proactive = patch.proactive;
+        }
+        if (patch.promptMode !== undefined) {
+            if (patch.promptMode === 'replace')
+                merged.promptMode = 'replace';
+            else
+                delete merged.promptMode;
         }
         if (patch.quietUntil !== undefined) {
             const q = Number(patch.quietUntil);

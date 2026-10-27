@@ -106,7 +106,7 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
             return {
                 ...e,
                 registered: Boolean(d.name || d.number),
-                name: d.name ?? '', number: d.number ?? '', note: d.note ?? '', prompt: d.prompt ?? '',
+                name: d.name ?? '', number: d.number ?? '', note: d.note ?? '', prompt: d.prompt ?? '', promptMode: d.promptMode === 'replace' ? 'replace' : 'append',
                 label: GroupDirectory.label(e.groupOpenid),
                 memories: d.memories ?? [],
                 rate: rateStatus(e.groupOpenid, config),
@@ -343,6 +343,13 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                 if (patch.prompt && patch.prompt.length > GROUP_PROMPT_MAX) {
                     sendJson(res, 400, { ok: false, error: `群专属 prompt 最长 ${GROUP_PROMPT_MAX} 字` });
                     return;
+                }
+                if (body.promptMode !== undefined) {
+                    if (body.promptMode !== 'append' && body.promptMode !== 'replace') {
+                        sendJson(res, 400, { ok: false, error: 'promptMode 需为 append（补充）或 replace（替换）' });
+                        return;
+                    }
+                    patch.promptMode = body.promptMode;
                 }
                 if (body.rateLimit !== undefined) {
                     const r = body.rateLimit;
