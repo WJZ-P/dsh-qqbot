@@ -36,7 +36,7 @@ export const CAPABILITIES = [
     { id: 'sticker', source: 'plugin', category: '互动', name: '表情包', how: 'qqbot_sticker', requires: '无', note: '收集群友表情包、按情绪发送' },
     { id: 'pulse', source: 'plugin', category: '互动', name: '水群引擎（主动插话 / 复读 / 群档案）', how: '自动', requires: '无', note: '按活跃度自适应频率' },
     { id: 'reminder', source: 'plugin', category: '工具', name: '定时提醒 / 定时任务', how: 'qqbot_reminder', requires: '一次性任何人（每人 ≤5 个）；重复任务仅主人', note: 'N 分钟后 / 某时刻 / 每天 / 每周 / 每 N 分钟；到点在原会话提醒或执行任务，重启不丢' },
-    { id: 'search', source: 'plugin', category: '工具', name: '联网搜索', how: 'qqbot_web_search', requires: '无', note: 'DuckDuckGo → 搜狗，免费' },
+    { id: 'search', source: 'plugin', category: '工具', name: '联网搜索', how: 'qqbot_web_search', requires: '无', note: '百度 / 国际 Bing / Google 新闻 / 维基百科，免费' },
     { id: 'model', source: 'plugin', category: '工具', name: '切换模型', how: 'qqbot_switch_model', requires: '主人', note: '按群 / 全部群 / 私聊' },
     { id: 'ask', source: 'plugin', category: '工具', name: '向用户提问（按钮）', how: 'ask', requires: '无', note: '' },
     { id: 'sleep', source: 'plugin', category: '作息', name: '夜间睡眠 / 主人叫醒', how: '自动', requires: '无', note: '默认 00:00–08:00' },
