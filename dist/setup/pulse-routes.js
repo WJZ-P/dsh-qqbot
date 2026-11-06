@@ -57,6 +57,26 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
         void fn().catch((err) => logger.warn(`im-qqbot: ${name} 失败: ${errText(err)}`)).finally(() => running.delete(name));
         return true;
     };
+    /**
+     * 消息库统计缓存：库到十几万条后，GROUP BY / COUNT(DISTINCT) 每次要几秒，
+     * 而 node:sqlite 是同步的——面板 10 秒轮询一次就会把整个宿主卡住，面板永远「正在加载」。
+     * 统计 60 秒内复用；后台过期后由下一次请求刷新。
+     */
+    const STORE_TTL_MS = 60_000;
+    const storeCache = new Map();
+    const cached = (key, fn, fallback) => {
+        const hit = storeCache.get(key);
+        if (hit && Date.now() - hit.at < STORE_TTL_MS)
+            return hit.value;
+        let value = fallback;
+        try {
+            value = fn() ?? fallback;
+        }
+        catch { /* ignore */ }
+        storeCache.set(key, { at: Date.now(), value });
+        return value;
+    };
+    const storeStats = () => cached('stats', () => store?.stats?.(), null);
     /** 已知的群：群目录 ∪ 水群状态 ∪ 消息库 */
     const knownGroups = () => {
         const map = new Map();
@@ -75,7 +95,7 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
         }
         catch { /* ignore */ }
         try {
-            for (const g of store?.stats?.().groups ?? []) {
+            for (const g of storeStats()?.groups ?? []) {
                 const e = touch(g.groupOpenid);
                 if (e) {
                     e.count = Number(g.count ?? 0);
@@ -86,7 +106,7 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
         catch { /* ignore */ }
         let daily = {};
         try {
-            daily = store?.groupDailyCounts?.(7) ?? {};
+            daily = cached('daily', () => store?.groupDailyCounts?.(7), {});
         }
         catch { /* ignore */ }
         let pulseGroups = new Map();
@@ -98,7 +118,7 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
             const d = GroupDirectory.get(e.groupOpenid) ?? {};
             let top = [];
             try {
-                top = (store?.groupTopSenders?.(e.groupOpenid, 5) ?? []).map((u) => ({ name: u.name || `${String(u.userOpenid).slice(0, 6)}…`, count: Number(u.count) }));
+                top = cached(`top:${e.groupOpenid}`, () => store?.groupTopSenders?.(e.groupOpenid, 5), []).map((u) => ({ name: u.name || `${String(u.userOpenid).slice(0, 6)}…`, count: Number(u.count) }));
             }
             catch { /* ignore */ }
             const days = daily[e.groupOpenid] ?? new Array(7).fill(0);
@@ -229,14 +249,14 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
                 if (req.method === 'GET') {
                     if (!guard(req, res, 'GET'))
                         return;
-                    for (const g0 of knownGroups()) {
+                    const groups = knownGroups();
+                    for (const g0 of groups) {
                         groupAdmin?.info?.(g0.groupOpenid).catch(() => { });
                         groupAdmin?.botState?.(g0.groupOpenid).catch(() => { });
                     }
-                    const groups = knownGroups();
                     let storeInfo = null;
                     try {
-                        const st = store?.stats?.();
+                        const st = storeStats();
                         if (st)
                             storeInfo = { path: st.path, sizeBytes: st.sizeBytes, total: st.total, firstAt: st.firstAt };
                     }

@@ -171,7 +171,16 @@ WHERE scene = 'group' AND group_openid IS NOT NULL AND received_at >= ? GROUP BY
         }
         return size;
     }
+    /** 全库分组统计在十几万条时要 1~2 秒（同步阻塞宿主），面板轮询频繁，缓存 30 秒；clear 后失效 */
+    statsCache = null;
     stats() {
+        if (this.statsCache && Date.now() - this.statsCache.at < 30_000)
+            return this.statsCache.value;
+        const value = this.computeStats();
+        this.statsCache = { at: Date.now(), value };
+        return value;
+    }
+    computeStats() {
         const totals = this.stmts.totals.get();
         return {
             path: this.path,
@@ -248,6 +257,7 @@ WHERE scene = 'group' AND group_openid IS NOT NULL AND received_at >= ? GROUP BY
                 throw new TypeError('unknown clear target');
         }
         const deleted = Number(result.changes);
+        this.statsCache = null;
         if (deleted > 0)
             this.compact();
         return deleted;
