@@ -1,6 +1,6 @@
 /**
  * 表 / 里模式 — 主人说「切换到里模式」时，把 private/ura-prompt.txt 原样插到 system prompt 最开头；
- * 说「切换到表模式」时去掉。全局生效（所有群和私聊），状态存 private/ura-mode.json，重启后保留。
+ * 说「切换到表模式」时去掉。全局生效（所有群和私聊）。默认关闭：插件重载 / 重启后回到表模式。
  *
  * private/ 目录已 gitignore：prompt 文本属于主人私有，不进仓库、不对外展示。
  * 切换指令不进 LLM，由中间件直接截获并回一句确认；只认已验证主人（ctx.state.owner）。
@@ -13,10 +13,11 @@ const PROMPT_FILE = join(PRIVATE_DIR, 'ura-prompt.txt');
 const STATE_FILE = join(PRIVATE_DIR, 'ura-mode.json');
 const URA_RE = /^(切换?到|切换成|切成|进入|开启)?里模式[。.!！~～]*$/;
 const OMOTE_RE = /^((切换?到|切换成|切成|回到|进入|开启)?表模式|关闭里模式)[。.!！~～]*$/;
+// 默认关闭：插件加载 / 重启后一律从表模式开始，里模式只在主人明确说「里模式」后生效
 let mode = 'omote';
 try {
     if (existsSync(STATE_FILE))
-        mode = JSON.parse(readFileSync(STATE_FILE, 'utf8')).mode === 'ura' ? 'ura' : 'omote';
+        writeFileSync(STATE_FILE, JSON.stringify({ mode }), 'utf8');
 }
 catch { /* ignore */ }
 let cache = { mtime: -1, text: '' };
