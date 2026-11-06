@@ -77,7 +77,18 @@ export class GroupAdminApi {
         this.cache.set(key, { at: Date.now(), data });
         return data;
     }
-    info(gid) { return this.cached(`info:${gid}`, 10 * 60_000, () => this.api.get(`/v2/groups/${enc(gid)}/info`)); }
+    info(gid) {
+        return this.cached(`info:${gid}`, 10 * 60_000, async () => {
+            const i = await this.api.get(`/v2/groups/${enc(gid)}/info`);
+            try { GroupDirectory.setOfficial(gid, i); } catch { /* ignore */ }
+            return i;
+        });
+    }
+    /** 后台刷新官方群名（失败静默；同一群 10 分钟内只请求一次） */
+    refreshName(gid) {
+        if (typeof gid === 'string' && /^[0-9A-F]{24,64}$/i.test(gid))
+            this.info(gid).catch(() => { });
+    }
     botState(gid, fresh = false) {
         if (fresh)
             this.cache.delete(`state:${gid}`);

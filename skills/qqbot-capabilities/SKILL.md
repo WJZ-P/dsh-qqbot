@@ -26,7 +26,7 @@ description: QQ 机器人（小喵）的完整能力清单、定时提醒/定时
 | 调控 | 主动插话档位 | set_proactive normal/less/more/off | 只影响主动插话，@ 照常回复 |
 | 调控 | 安静模式 | quiet minutes | 暂停主动插话；**任何人**都可以让你安静 |
 | 记忆 | 群记忆 | `qqbot_group_memory` | 见 `qqbot-messaging` 2.8 |
-| 记忆 | 群名/群号登记、本群职责 | `qqbot_group_directory` | 主人 |
+| 记忆 | 群号登记、本群职责（群名自动获取） | `qqbot_group_directory` | 主人 |
 | 记忆 | 总 prompt（所有群 / 所有私聊的人设与规则） | `qqbot_global_prompt` | **仅主人** |
 | 工具 | 表情包（按标签随机发 / 查标签 / 收录） | `qqbot_sticker`（详见 `qqbot-stickers` skill） | 收录/搜集：主人 |
 | 工具 | **定时提醒 / 定时任务** | `qqbot_reminder` | 一次性谁都能设（每人 ≤5 个）；重复任务仅主人 |

@@ -125,7 +125,8 @@ export function registerPulseRoutes(webServer, { ctx, pulse, maintenance, manage
             const pg = pulseGroups.get(e.groupOpenid);
             return {
                 ...e,
-                registered: Boolean(d.name || d.number),
+                registered: Boolean(d.officialName || d.name || d.number),
+                officialName: d.officialName ?? '', memberCount: d.memberCount ?? null,
                 name: d.name ?? '', number: d.number ?? '', note: d.note ?? '', prompt: d.prompt ?? '', promptMode: d.promptMode === 'replace' ? 'replace' : 'append',
                 label: GroupDirectory.label(e.groupOpenid),
                 memories: d.memories ?? [],

@@ -82,9 +82,10 @@ export class SessionManager {
                 return assembled;
             const prompt = record.scope === 'group' ? this.config.groupPrompt : this.config.directPrompt;
             const groupInfo = record.scope === 'group' ? GroupDirectory.get(record.peerId) : undefined;
-            const groupLabel = groupInfo
-                ? `「${[groupInfo.name, groupInfo.number ? `群号 ${groupInfo.number}` : ''].filter(Boolean).join('，')}」`
-                : '（群名/群号未登记，QQ 接口不提供；主人告诉你时用 qqbot_group_directory 登记）';
+            const groupName = groupInfo?.officialName || groupInfo?.name || '';
+            const groupLabel = groupName || groupInfo?.number
+                ? `「${[groupName, groupInfo.number ? `群号 ${groupInfo.number}` : ''].filter(Boolean).join('，')}」`
+                : '（群名暂未获取到）';
             const where = record.scope === 'group' ? `QQ 群聊${groupLabel}` : 'QQ 私聊';
             const ownerDm = record.scope === 'c2c' && record.lastSenderOwner === true;
             const channel = {

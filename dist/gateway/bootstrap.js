@@ -27,6 +27,7 @@ import { registerReminderTool, startReminderScheduler } from "../features/remind
 import { setAutoStickerSender } from "../features/auto-sticker.js";
 import { registerRestartTool } from "../features/restart-tool.js";
 import { GroupAdminApi } from "../features/group-admin.js";
+import { GroupDirectory } from "../features/group-directory.js";
 import { registerPulseRoutes } from "../setup/pulse-routes.js";
 /**
  * interaction 统一分发器：按 button_data 的顶层 `t` 判别字段，路由到对应
@@ -216,6 +217,28 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
     catch (err) {
         logger.warn(`im-qqbot: qqbot_web_search 注册失败: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // ── 官方群名自动获取：收到群消息时刷新（10 分钟缓存），并定时扫一遍已知群 ──
+    const nameApi = groupAdmin ?? new GroupAdminApi(bot);
+    bot.on('message', (mCtx) => {
+        if (mCtx?.replyTarget?.scope === 'group')
+            nameApi.refreshName(mCtx.replyTarget.targetId);
+    });
+    const sweepNames = () => {
+        const ids = new Set(GroupDirectory.list().map((g) => g.openid));
+        try {
+            for (const g of messageStore?.stats?.().groups ?? [])
+                if (g.groupOpenid)
+                    ids.add(g.groupOpenid);
+        }
+        catch { /* ignore */ }
+        for (const id of ids)
+            nameApi.refreshName(id);
+    };
+    ctx.effect(() => {
+        const first = setTimeout(sweepNames, 15_000);
+        const t = setInterval(sweepNames, 6 * 60 * 60_000);
+        return () => { clearTimeout(first); clearInterval(t); };
+    }, 'im-qqbot.group-names');
     let maintenance = null;
     if (pulse !== null) {
         maintenance = new PulseMaintenance({ ctx, pulse, manager, store: messageStore, logger, profiles: pulse.profiles });
@@ -225,7 +248,7 @@ export async function bootstrapGateway(ctx, agents, config, logger, messageStore
         const webServer = scoped.webServer;
         if (typeof webServer?.register !== 'function')
             return;
-        const dispose = registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store: messageStore, config, groupAdmin: groupAdmin ?? new GroupAdminApi(bot) });
+        const dispose = registerPulseRoutes(webServer, { ctx, pulse, maintenance, manager, logger, store: messageStore, config, groupAdmin: nameApi });
         scoped.effect(() => dispose, 'im-qqbot.pulse-routes');
     });
     // ── 生命周期 ──

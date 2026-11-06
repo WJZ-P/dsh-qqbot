@@ -1,8 +1,8 @@
 /**
  * 群目录 — group_openid → { name, number, note, prompt, rateLimit, memories } 的 KV 记录。
  *
- * QQ 官方机器人 API 不下发群名和群号，只给 group_openid；由主人在聊天中告诉机器人
- * （qqbot_group_directory 工具）或在面板「群聊管理」中录入。存储：~/.dsh-qqbot/group-directory.json
+ * 群名：自动从 QQ 官方 /v2/groups/{gid}/info 获取（officialName，优先显示）；name 只作手动别名兜底。
+ * 群号接口不提供，需主人告诉机器人（qqbot_group_directory 工具）或在面板录入。存储：~/.dsh-qqbot/group-directory.json
  *
  * - prompt：群专属职责/人设（最长 4000 字）
  * - promptMode：append（缺省，接在默认群聊 prompt 后面作为补充）| replace（完全替换默认 prompt）
@@ -82,6 +82,12 @@ function sanitize(v) {
         if (mems.length)
             out.memories = mems;
     }
+    if (typeof v.officialName === 'string' && v.officialName.trim())
+        out.officialName = v.officialName.trim().slice(0, 200);
+    if (Number.isFinite(Number(v.memberCount)) && Number(v.memberCount) > 0)
+        out.memberCount = Math.floor(Number(v.memberCount));
+    if (typeof v.officialAt === 'number')
+        out.officialAt = v.officialAt;
     if (typeof v.updatedAt === 'number')
         out.updatedAt = v.updatedAt;
     return out;
@@ -158,6 +164,27 @@ export const GroupDirectory = {
         save();
         return merged;
     },
+    /** QQ 官方 /v2/groups/{gid}/info 拿到的群名、人数：自动写入，名字变了才落盘 */
+    setOfficial(openid, info) {
+        const name = String(info?.group_name ?? '').trim().slice(0, 200);
+        if (!openid || !name)
+            return;
+        const map = load();
+        const cur = map.get(openid) ?? {};
+        const members = Number(info?.group_member_num);
+        const changed = cur.officialName !== name || (Number.isFinite(members) && members > 0 && cur.memberCount !== members);
+        const entry = { ...cur, officialName: name, officialAt: Date.now() };
+        if (Number.isFinite(members) && members > 0)
+            entry.memberCount = members;
+        map.set(openid, entry);
+        if (changed)
+            save();
+    },
+    /** 群显示名：官方群名优先，其次手动备注名 */
+    displayName(openid) {
+        const g = load().get(openid);
+        return g?.officialName || g?.name || '';
+    },
     remove(openid) {
         const ok = load().delete(openid);
         if (ok)
@@ -227,21 +254,23 @@ export const GroupDirectory = {
         if (!q)
             return { error: '请提供群名、群号或 openid' };
         const all = this.list();
-        const exact = all.filter((g) => g.openid.toLowerCase() === q || g.number === q || (g.name ?? '').toLowerCase() === q);
+        const names = (g) => [g.officialName, g.name].filter(Boolean).map((s) => s.toLowerCase());
+        const exact = all.filter((g) => g.openid.toLowerCase() === q || g.number === q || names(g).includes(q));
         if (exact.length === 1)
             return { group: exact[0] };
-        const fuzzy = exact.length > 1 ? exact : all.filter((g) => (g.name ?? '').toLowerCase().includes(q) || g.openid.toLowerCase().startsWith(q));
+        const fuzzy = exact.length > 1 ? exact : all.filter((g) => names(g).some((n) => n.includes(q)) || g.openid.toLowerCase().startsWith(q));
         if (fuzzy.length === 1)
             return { group: fuzzy[0] };
         if (fuzzy.length > 1)
             return { error: `「${query}」匹配到多个群`, candidates: fuzzy };
-        return { error: `群目录里没有「${query}」（先在那个群里让机器人登记群名/群号）` };
+        return { error: `没有找到群「${query}」（机器人收到过该群消息后会自动获取官方群名）` };
     },
     label(openid) {
         const g = load().get(openid);
-        if (!g || (!g.name && !g.number))
-            return `未登记群(${openid.slice(0, 8)}…)`;
-        return [g.name, g.number ? `群号 ${g.number}` : ''].filter(Boolean).join(' · ');
+        const name = g?.officialName || g?.name;
+        if (!name && !g?.number)
+            return `群(${openid.slice(0, 8)}…)`;
+        return [name, g.number ? `群号 ${g.number}` : ''].filter(Boolean).join(' · ');
     },
 };
 //# sourceMappingURL=group-directory.js.map
